@@ -1,0 +1,14 @@
+.venv/
+.env 
+
+#python's compiled bytecode cache
+__pycache__/
+*.pyc
+
+# downloaded model weights (large) 
+.cache/
+
+# test / tools caches 
+.pytest_cache/ 
+
+
