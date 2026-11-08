@@ -59,27 +59,28 @@ def cpu_benchmark() ->None:
 
     print(f"cuda gpu found : {torch.cuda.is_available()}")
 
-    print(f"{n} X {n} matmul : {seconds * 1000:.1f} ms -> {flops / seconds / 1e9:.1f} GFLPS/s")
+    print(f"{n} X {n} matmul : {seconds * 1000:.1f} ms -> {flops / seconds / 1e9:.1f} GFLOP/s")
 
 
 
-    def main() -> None:
-        print("python")
-        print(f"version : {platform.python_version()}")
-        print(f"interpreter : {sys.executable}")
+def main() -> None:
+    print("python")
+    print(f"version : {platform.python_version()}")
+    print(f"interpreter : {sys.executable}")
 
-        in_venv = sys.prefix != sys.base_prefix
+    in_venv = sys.prefix != sys.base_prefix
 
-        print(f"inside a venv :  {in_venv}") 
+    print(f"inside a venv :  {in_venv}")
 
-        print("\nPackages")
-        ok = check_packages()
+    print("\nPackages")
+    ok = check_packages()
 
-        if ok:
-            print("\nCPU speed")
-            cpu_benchmark()
+    if ok:
+        print("\nCPU speed")
+        cpu_benchmark()
 
-            print("\n result: ", "environment ready " if ok and in_venv else "fix the items above")
+    print("\nresult:", "environment ready" if ok and in_venv else "fix the items above")
 
-            if __name__ == "__main__":
-                main()
+
+if __name__ == "__main__":
+    main()
