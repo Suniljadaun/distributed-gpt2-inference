@@ -1,0 +1,114 @@
+{
+  "model": "distilgpt2",
+  "torch": "2.14.1+cpu",
+  "decoding": "greedy",
+  "max_new_tokens": 20,
+  "entries": [
+    {
+      "prompt": "The capital of France is",
+      "prompt_ids": [
+        464,
+        3139,
+        286,
+        4881,
+        318
+      ],
+      "new_ids": [
+        262,
+        3139,
+        286,
+        262,
+        4141,
+        2066,
+        13,
+        383,
+        3139,
+        286,
+        4881,
+        318,
+        262,
+        3139,
+        286,
+        262,
+        4141,
+        2066,
+        13,
+        383
+      ],
+      "text": " the capital of the French Republic. The capital of France is the capital of the French Republic. The",
+      "ms_per_token": 42.5
+    },
+    {
+      "prompt": "Distributed systems are hard because",
+      "prompt_ids": [
+        20344,
+        6169,
+        3341,
+        389,
+        1327,
+        780
+      ],
+      "new_ids": [
+        484,
+        389,
+        407,
+        9387,
+        13,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198,
+        198
+      ],
+      "text": " they are not distributed.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n",
+      "ms_per_token": 47.9
+    },
+    {
+      "prompt": "Once upon a time, there was a",
+      "prompt_ids": [
+        7454,
+        2402,
+        257,
+        640,
+        11,
+        612,
+        373,
+        257
+      ],
+      "new_ids": [
+        1256,
+        286,
+        1561,
+        546,
+        262,
+        2003,
+        286,
+        262,
+        983,
+        13,
+        314,
+        892,
+        326,
+        338,
+        257,
+        922,
+        1517,
+        13,
+        314,
+        892
+      ],
+      "text": " lot of talk about the future of the game. I think that's a good thing. I think",
+      "ms_per_token": 52.2
+    }
+  ]
+}
