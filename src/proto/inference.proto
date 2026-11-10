@@ -1,0 +1,24 @@
+// inference.proto - Chapter 7 (grows in Chapter 8 and later)
+// The messages of the distributed inference engine. This chapter: how a tensor travels.
+// Generate Python code (run from final\):
+//   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
+
+syntax = "proto3";
+
+package inference;
+
+enum DType {
+  DTYPE_UNSPECIFIED = 0;   // proto3 rule: the first enum value must be 0; we never use it
+  FLOAT32 = 1;
+  FLOAT16 = 2;
+  BFLOAT16 = 3;
+  INT64 = 4;
+}
+
+// A tensor on the wire: shape + element type + the raw bytes of its memory.
+// data is little-endian, row-major (C-contiguous), exactly prod(shape) * element_size bytes.
+message Tensor {
+  repeated int64 shape = 1;
+  DType dtype = 2;
+  bytes data = 3;
+}
