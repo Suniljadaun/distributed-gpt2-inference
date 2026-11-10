@@ -1,5 +1,5 @@
-// inference.proto - Chapter 7 (grows in Chapter 8 and later)
-// The messages of the distributed inference engine. This chapter: how a tensor travels.
+// inference.proto - Chapter 7 (Tensor), Chapter 8 (StageWorker service); grows in later chapters
+// The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
 
@@ -21,4 +21,37 @@ message Tensor {
   repeated int64 shape = 1;
   DType dtype = 2;
   bytes data = 3;
+}
+
+// ---------------- Chapter 8: one pipeline stage = one worker process ----------------
+
+service StageWorker {
+  rpc Forward (ForwardRequest) returns (ForwardReply);   // run this worker's layers on one input
+  rpc Info (InfoRequest) returns (InfoReply);            // which layers do you hold?
+}
+
+message ForwardRequest {
+  string request_id = 1;
+  int32 step_id = 2;       // 0 = prefill, then 1, 2, 3, ... one per generated token
+  Tensor input = 3;        // first stage: token ids [1, s] int64; other stages: hidden [1, s, 768] float32
+}
+
+message ForwardReply {
+  string request_id = 1;   // echoed back, so the caller can check the reply matches the request
+  int32 step_id = 2;
+  Tensor output = 3;       // hidden [1, s, 768] (not set by the last stage)
+  int64 next_token = 4;    // only the last stage: greedy choice for the next token
+  double compute_ms = 5;   // time spent in the layers, measured inside the worker
+}
+
+message InfoRequest {}
+
+message InfoReply {
+  string worker_id = 1;
+  int32 first_layer = 2;   // holds blocks first_layer .. last_layer - 1
+  int32 last_layer = 3;
+  bool has_embed = 4;
+  bool has_head = 5;
+  int32 pid = 6;
+  int64 param_bytes = 7;
 }

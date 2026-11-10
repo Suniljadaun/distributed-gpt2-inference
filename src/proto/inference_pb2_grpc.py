@@ -3,6 +3,7 @@
 import grpc
 import warnings
 
+from src.proto import inference_pb2 as src_dot_proto_dot_inference__pb2
 
 GRPC_GENERATED_VERSION = '1.84.0'
 GRPC_VERSION = grpc.__version__
@@ -22,3 +23,126 @@ if _version_not_supported:
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
     )
+
+
+class StageWorkerStub:
+    """---------------- Chapter 8: one pipeline stage = one worker process ----------------
+
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Forward = channel.unary_unary(
+                '/inference.StageWorker/Forward',
+                request_serializer=src_dot_proto_dot_inference__pb2.ForwardRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.ForwardReply.FromString,
+                _registered_method=True)
+        self.Info = channel.unary_unary(
+                '/inference.StageWorker/Info',
+                request_serializer=src_dot_proto_dot_inference__pb2.InfoRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.InfoReply.FromString,
+                _registered_method=True)
+
+
+class StageWorkerServicer:
+    """---------------- Chapter 8: one pipeline stage = one worker process ----------------
+
+    """
+
+    def Forward(self, request, context):
+        """run this worker's layers on one input
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Info(self, request, context):
+        """which layers do you hold?
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_StageWorkerServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Forward': grpc.unary_unary_rpc_method_handler(
+                    servicer.Forward,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.ForwardRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.ForwardReply.SerializeToString,
+            ),
+            'Info': grpc.unary_unary_rpc_method_handler(
+                    servicer.Info,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.InfoRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.InfoReply.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'inference.StageWorker', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('inference.StageWorker', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class StageWorker:
+    """---------------- Chapter 8: one pipeline stage = one worker process ----------------
+
+    """
+
+    @staticmethod
+    def Forward(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/Forward',
+            src_dot_proto_dot_inference__pb2.ForwardRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.ForwardReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Info(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/Info',
+            src_dot_proto_dot_inference__pb2.InfoRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.InfoReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
