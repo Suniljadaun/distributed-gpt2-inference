@@ -1,0 +1,44 @@
+// counter.proto - Chapter 6
+// The Chapter 5 "worker" again, described as a gRPC service instead of hand-made framing.
+// Generate Python code (run from final\):
+//   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. playground/ch06/counter.proto
+
+syntax = "proto3";
+
+package ch06;
+
+service Counter {
+  rpc Echo (EchoRequest) returns (EchoReply);              // unary: one request, one reply
+  rpc Add (AddRequest) returns (CounterReply);
+  rpc Get (GetRequest) returns (CounterReply);
+  rpc CountUp (CountUpRequest) returns (stream Tick);      // server streaming: one request, many replies
+}
+
+message EchoRequest {
+  bytes payload = 1;
+}
+
+message EchoReply {
+  bytes payload = 1;
+}
+
+message AddRequest {
+  string request_id = 1;   // chosen by the client; the same id on a retry = "the same request"
+  int64 amount = 2;
+  double delay_s = 3;      // test knob: how long the server waits before replying
+}
+
+message GetRequest {}
+
+message CounterReply {
+  int64 counter = 1;
+}
+
+message CountUpRequest {
+  int32 n = 1;
+  double interval_s = 2;
+}
+
+message Tick {
+  int32 i = 1;
+}
