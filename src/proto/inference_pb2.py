@@ -24,25 +24,29 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19src/proto/inference.proto\x12\tinference\"F\n\x06Tensor\x12\r\n\x05shape\x18\x01 \x03(\x03\x12\x1f\n\x05\x64type\x18\x02 \x01(\x0e\x32\x10.inference.DType\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"W\n\x0e\x46orwardRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12 \n\x05input\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\"~\n\x0c\x46orwardReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12!\n\x06output\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x12\n\nnext_token\x18\x04 \x01(\x03\x12\x12\n\ncompute_ms\x18\x05 \x01(\x01\"\r\n\x0bInfoRequest\"\x8e\x01\n\tInfoReply\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x13\n\x0b\x66irst_layer\x18\x02 \x01(\x05\x12\x12\n\nlast_layer\x18\x03 \x01(\x05\x12\x11\n\thas_embed\x18\x04 \x01(\x08\x12\x10\n\x08has_head\x18\x05 \x01(\x08\x12\x0b\n\x03pid\x18\x06 \x01(\x05\x12\x13\n\x0bparam_bytes\x18\x07 \x01(\x03*Q\n\x05\x44Type\x12\x15\n\x11\x44TYPE_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x46LOAT32\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0c\n\x08\x42\x46LOAT16\x10\x03\x12\t\n\x05INT64\x10\x04\x32\x82\x01\n\x0bStageWorker\x12=\n\x07\x46orward\x12\x19.inference.ForwardRequest\x1a\x17.inference.ForwardReply\x12\x34\n\x04Info\x12\x16.inference.InfoRequest\x1a\x14.inference.InfoReplyb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19src/proto/inference.proto\x12\tinference\"F\n\x06Tensor\x12\r\n\x05shape\x18\x01 \x03(\x03\x12\x1f\n\x05\x64type\x18\x02 \x01(\x0e\x32\x10.inference.DType\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"j\n\x0e\x46orwardRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12 \n\x05input\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x11\n\tstart_pos\x18\x04 \x01(\x05\"\x91\x01\n\x0c\x46orwardReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12!\n\x06output\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x12\n\nnext_token\x18\x04 \x01(\x03\x12\x12\n\ncompute_ms\x18\x05 \x01(\x01\x12\x11\n\tcache_len\x18\x06 \x01(\x05\"\r\n\x0bInfoRequest\"\xb9\x01\n\tInfoReply\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x13\n\x0b\x66irst_layer\x18\x02 \x01(\x05\x12\x12\n\nlast_layer\x18\x03 \x01(\x05\x12\x11\n\thas_embed\x18\x04 \x01(\x08\x12\x10\n\x08has_head\x18\x05 \x01(\x08\x12\x0b\n\x03pid\x18\x06 \x01(\x05\x12\x13\n\x0bparam_bytes\x18\x07 \x01(\x03\x12\x17\n\x0f\x63\x61\x63hed_requests\x18\x08 \x01(\x05\x12\x10\n\x08kv_bytes\x18\t \x01(\x03\"$\n\x0eReleaseRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\"4\n\x0cReleaseReply\x12\x0f\n\x07\x65xisted\x18\x01 \x01(\x08\x12\x13\n\x0b\x66reed_bytes\x18\x02 \x01(\x03*Q\n\x05\x44Type\x12\x15\n\x11\x44TYPE_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x46LOAT32\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0c\n\x08\x42\x46LOAT16\x10\x03\x12\t\n\x05INT64\x10\x04\x32\xc1\x01\n\x0bStageWorker\x12=\n\x07\x46orward\x12\x19.inference.ForwardRequest\x1a\x17.inference.ForwardReply\x12\x34\n\x04Info\x12\x16.inference.InfoRequest\x1a\x14.inference.InfoReply\x12=\n\x07Release\x12\x19.inference.ReleaseRequest\x1a\x17.inference.ReleaseReplyb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'src.proto.inference_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DTYPE']._serialized_start=489
-  _globals['_DTYPE']._serialized_end=570
+  _globals['_DTYPE']._serialized_start=663
+  _globals['_DTYPE']._serialized_end=744
   _globals['_TENSOR']._serialized_start=40
   _globals['_TENSOR']._serialized_end=110
   _globals['_FORWARDREQUEST']._serialized_start=112
-  _globals['_FORWARDREQUEST']._serialized_end=199
-  _globals['_FORWARDREPLY']._serialized_start=201
-  _globals['_FORWARDREPLY']._serialized_end=327
-  _globals['_INFOREQUEST']._serialized_start=329
-  _globals['_INFOREQUEST']._serialized_end=342
-  _globals['_INFOREPLY']._serialized_start=345
-  _globals['_INFOREPLY']._serialized_end=487
-  _globals['_STAGEWORKER']._serialized_start=573
-  _globals['_STAGEWORKER']._serialized_end=703
+  _globals['_FORWARDREQUEST']._serialized_end=218
+  _globals['_FORWARDREPLY']._serialized_start=221
+  _globals['_FORWARDREPLY']._serialized_end=366
+  _globals['_INFOREQUEST']._serialized_start=368
+  _globals['_INFOREQUEST']._serialized_end=381
+  _globals['_INFOREPLY']._serialized_start=384
+  _globals['_INFOREPLY']._serialized_end=569
+  _globals['_RELEASEREQUEST']._serialized_start=571
+  _globals['_RELEASEREQUEST']._serialized_end=607
+  _globals['_RELEASEREPLY']._serialized_start=609
+  _globals['_RELEASEREPLY']._serialized_end=661
+  _globals['_STAGEWORKER']._serialized_start=747
+  _globals['_STAGEWORKER']._serialized_end=940
 # @@protoc_insertion_point(module_scope)

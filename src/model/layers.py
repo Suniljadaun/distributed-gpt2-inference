@@ -8,6 +8,8 @@ import math
 
 import torch
 from torch import nn
+from src.model.kv_cache import LayerKV
+
 
 from src.model.config import GPTConfig
 
@@ -75,13 +77,19 @@ class CausalSelfAttention(nn.Module):
         b, _, s, _ = t.shape
         return t.transpose(1, 2).reshape(b, s, self.n_head * self.d_head)  # [b, s, d]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, kv: LayerKV | None = None) -> torch.Tensor:
         s = x.shape[1]
         q, k, v = self.c_attn(x).split(self.n_head * self.d_head, dim=-1)   # 3 x [b, s, d]
         q, k, v = self.split_heads(q), self.split_heads(k), self.split_heads(v)
 
-        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_head)        # [b, h, s, s]
-        future = torch.triu(torch.ones(s, s, dtype=torch.bool, device=x.device), diagonal=1)
+        past = 0
+        if kv is not None:                                                 # Ch 9: reuse earlier K, V
+            past = kv.length
+            k, v = kv.append(k, v)                                         # now [b, h, past + s, d_h]
+        total = k.shape[2]
+
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.d_head)        # [b, h, s, past + s]
+        future = torch.triu(torch.ones(s, total, dtype=torch.bool, device=x.device), diagonal=past + 1)
         scores = scores.masked_fill(future, float("-inf"))                 # hide later tokens
         weights = torch.softmax(scores, dim=-1)                            # each row sums to 1
 
@@ -99,7 +107,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(cfg.d_model, cfg.ln_eps)
         self.mlp = MLP(cfg)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x))   # residual: add, don't replace
+    def forward(self, x: torch.Tensor, kv: LayerKV | None = None) -> torch.Tensor:
+        x = x + self.attn(self.ln_1(x), kv)   # residual: add, don't replace
         x = x + self.mlp(self.ln_2(x))
         return x
+

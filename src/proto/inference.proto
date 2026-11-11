@@ -1,5 +1,4 @@
-// inference.proto - Chapter 7 (Tensor), Chapter 8 (StageWorker service); grows in later chapters
-// The messages of the distributed inference engine.
+// inference.proto - Chapter 7 (Tensor), Chapter 8 (StageWorker service), Chapter 9 (KV-cache fields)// The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
 
@@ -28,12 +27,14 @@ message Tensor {
 service StageWorker {
   rpc Forward (ForwardRequest) returns (ForwardReply);   // run this worker's layers on one input
   rpc Info (InfoRequest) returns (InfoReply);            // which layers do you hold?
+  rpc Release (ReleaseRequest) returns (ReleaseReply);   // Ch 9: forget a finished request's KV-cache
 }
 
 message ForwardRequest {
   string request_id = 1;
   int32 step_id = 2;       // 0 = prefill, then 1, 2, 3, ... one per generated token
   Tensor input = 3;        // first stage: token ids [1, s] int64; other stages: hidden [1, s, 768] float32
+  int32 start_pos = 4;     // Ch 9: position of input's first token = tokens already in this request's cache
 }
 
 message ForwardReply {
@@ -42,6 +43,7 @@ message ForwardReply {
   Tensor output = 3;       // hidden [1, s, 768] (not set by the last stage)
   int64 next_token = 4;    // only the last stage: greedy choice for the next token
   double compute_ms = 5;   // time spent in the layers, measured inside the worker
+  int32 cache_len = 6;     // Ch 9: positions in this request's cache after this step
 }
 
 message InfoRequest {}
@@ -54,4 +56,15 @@ message InfoReply {
   bool has_head = 5;
   int32 pid = 6;
   int64 param_bytes = 7;
+  int32 cached_requests = 8;   // Ch 9: requests whose KV-cache this worker holds
+  int64 kv_bytes = 9;          // Ch 9: total size of those caches
+}
+
+message ReleaseRequest {
+  string request_id = 1;
+}
+
+message ReleaseReply {
+  bool existed = 1;
+  int64 freed_bytes = 2;
 }

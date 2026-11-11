@@ -11,7 +11,7 @@ from torch import nn
 from src.model.config import GPTConfig
 from src.model.layers import Block, LayerNorm
 from src.model.weights import TRANSPOSED, hf_name_to_ours
-
+from src.model.kv_cache import KVCache
 
 class Stage(nn.Module):
     def __init__(self, cfg: GPTConfig, first: int, last: int, has_embed: bool, has_head: bool) -> None:
@@ -28,19 +28,22 @@ class Stage(nn.Module):
         if has_head:
             self.ln_f = LayerNorm(cfg.d_model, cfg.ln_eps)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, start_pos: int = 0, cache: KVCache | None = None) -> torch.Tensor:
         if self.has_embed:
             if x.dtype != torch.int64 or x.dim() != 2:
                 raise ValueError(f"first stage expects token ids [b, s] int64, got {tuple(x.shape)} {x.dtype}")
-            positions = torch.arange(x.shape[1])
+            if start_pos + x.shape[1] > self.cfg.n_ctx:
+                raise ValueError(f"positions {start_pos}..{start_pos + x.shape[1] - 1} exceed n_ctx {self.cfg.n_ctx}")
+            positions = torch.arange(start_pos, start_pos + x.shape[1])
             x = self.wte(x) + self.wpe(positions)
         elif x.dtype != torch.float32 or x.dim() != 3 or x.shape[-1] != self.cfg.d_model:
             raise ValueError(f"stage expects hidden [b, s, {self.cfg.d_model}] float32, got {tuple(x.shape)} {x.dtype}")
         for i in range(self.first, self.last):
-            x = self.blocks[str(i)](x)
+            x = self.blocks[str(i)](x, cache.layer(i) if cache is not None else None)
         if self.has_head:
             return self.ln_f(x[:, -1:, :]) @ self.wte.weight.T      # logits of the last position only
         return x
+
 
 
 def load_stage(first: int, last: int, has_embed: bool, has_head: bool, name: str = "distilgpt2") -> Stage:

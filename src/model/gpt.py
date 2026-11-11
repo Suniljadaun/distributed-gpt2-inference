@@ -8,7 +8,7 @@ from torch import nn
 
 from src.model.config import GPTConfig
 from src.model.layers import Block, Embeddings, LayerNorm
-
+from src.model.kv_cache import KVCache 
 
 class GPT(nn.Module):
     def __init__(self, cfg: GPTConfig) -> None:
@@ -22,11 +22,12 @@ class GPT(nn.Module):
         """Stage 1: token ids [b, s] -> hidden states [b, s, d]."""
         return self.emb(ids, start_pos)
 
-    def run_blocks(self, x: torch.Tensor, first: int, last: int) -> torch.Tensor:
+    def run_blocks(self, x: torch.Tensor, first: int, last: int, cache: KVCache | None = None) -> torch.Tensor:
         """Stage 2: run Blocks first..last-1 (Python-range style). [b, s, d] -> [b, s, d]."""
-        for block in self.blocks[first:last]:
-            x = block(x)
+        for i in range(first, last):
+            x = self.blocks[i](x, cache.layer(i) if cache is not None else None)
         return x
+
 
     def head(self, x: torch.Tensor) -> torch.Tensor:
         """Stage 3: hidden states [b, s, d] -> logits [b, s, V], one score per vocabulary token."""
