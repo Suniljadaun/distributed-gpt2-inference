@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import grpc
 
-from src.coordinator.pipeline import N_CTX, DeadlineExceeded, Pipeline
+from src.coordinator.pipeline import N_CTX, DeadlineExceeded, Pipeline, StaleReply
 from src.coordinator.token_log import TokenLog
 
 RECOVERABLE = {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.FAILED_PRECONDITION}
@@ -38,8 +38,9 @@ def generate_logged(pipe: Pipeline, log: TokenLog, request_id: str, prompt_ids: 
         wid = f"{request_id}~{attempt}"            # a fresh name on the workers for every (re)play
         try:
             _run(pipe, log, wid, request_id, eos_id, deadline, result)
-        except grpc.RpcError as e:
-            if e.code() not in RECOVERABLE or result.replays >= max_replays:
+        except (grpc.RpcError, StaleReply) as e:
+            recoverable = isinstance(e, StaleReply) or e.code() in RECOVERABLE   # Ch 14: stale = recoverable
+            if not recoverable or result.replays >= max_replays:
                 raise
             if health is not None and not health.wait_all_up(deadline - time.monotonic()):
                 raise DeadlineExceeded(f"{request_id}: workers not back before the deadline") from e

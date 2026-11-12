@@ -1,5 +1,5 @@
 """
-server.py - Chapter 8 (Ch 9 KV-cache; Ch 10 faults; Ch 11 ForwardBatch; Ch 12 Ping, generation, hang fault)
+server.py - Chapter 8 (Ch 9 KV-cache; Ch 10 faults; Ch 11 ForwardBatch; Ch 12 Ping, generation; Ch 14 fencing)
 A worker process: holds one Stage and serves it over gRPC.
 Run:  python -m src.worker.server --worker-id A --port 50061 --first 0 --last 3 --embed
       python -m src.worker.server --worker-id B --port 50062 --first 3 --last 6 --head
@@ -9,6 +9,7 @@ import math
 import os
 import threading
 import time
+import zlib
 from concurrent import futures
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -30,7 +31,13 @@ class RequestState:
         self.cache = KVCache()
         self.next_step = 0                              # the only step_id we will accept next
         self.last_reply: pb.ForwardReply | None = None  # to answer a retry of the previous step
+        self.last_digest: int | None = None             # Ch 14: fingerprint of that step's input
         self.lock = threading.Lock()                    # one step of a request at a time
+
+
+def step_digest(request: pb.ForwardRequest) -> int:
+    """Ch 14: a fingerprint of everything that defines a step. A genuine retry has the same one."""
+    return zlib.crc32(request.input.SerializeToString() + request.start_pos.to_bytes(4, "little"))
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,13 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
         self.requests_lock = threading.Lock()           # protects the dict itself
         self.calls = 0                                  # Forward calls so far, for fault injection
         self.calls_lock = threading.Lock()
+
+    def _fence(self, request: pb.ForwardRequest, context: grpc.ServicerContext) -> None:
+        """Ch 14: refuse a call meant for another incarnation of this worker."""
+        if request.expect_generation and request.expect_generation != self.generation:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION,
+                          f"fenced: {request.request_id!r} addressed generation {request.expect_generation}, "
+                          f"this is generation {self.generation}")
 
     def _maybe_hang(self) -> None:
         """Ch 12 fault: once hang_at has passed, every call blocks forever, like a deadlocked process."""
@@ -103,6 +117,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
 
     def _forward(self, request: pb.ForwardRequest, context: grpc.ServicerContext) -> tuple[pb.ForwardReply, bool]:
         """The Chapter 9 step logic. Returns (reply, fresh): fresh = computed now, not a stored retry answer."""
+        self._fence(request, context)
         try:
             x = tensor_from_proto(request.input)
         except ValueError as e:
@@ -118,6 +133,10 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
 
         with state.lock:
             if request.step_id == state.next_step - 1 and state.last_reply is not None:
+                if step_digest(request) != state.last_digest:   # Ch 14: same step number, different input
+                    context.abort(grpc.StatusCode.FAILED_PRECONDITION,
+                                  f"conflicting retry of {request.request_id!r} step {request.step_id}: "
+                                  f"input differs from the original")
                 return state.last_reply, False              # a retry of the step we just did: same answer
             if request.step_id != state.next_step:
                 context.abort(grpc.StatusCode.FAILED_PRECONDITION,
@@ -135,19 +154,23 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             compute_ms = (time.perf_counter() - start) * 1000
 
             reply = pb.ForwardReply(request_id=request.request_id, step_id=request.step_id,
-                                    compute_ms=compute_ms, cache_len=state.cache.length)
+                                    compute_ms=compute_ms, cache_len=state.cache.length,
+                                    generation=self.generation)
             if self.stage.has_head:
                 reply.next_token = int(out[0, -1].argmax())  # greedy decoding happens here
             else:
                 reply.output.CopyFrom(tensor_to_proto(out))
             state.next_step += 1
             state.last_reply = reply
+            state.last_digest = step_digest(request)
             return reply, True
 
     def ForwardBatch(self, request: pb.ForwardBatchRequest, context: grpc.ServicerContext) -> pb.ForwardBatchReply:
         """Ch 11: one decode step (1 token) for several requests, computed as ONE batch."""
         self._maybe_hang()
         items = list(request.items)
+        for it in items:
+            self._fence(it, context)
         ids = [it.request_id for it in items]
         if len(set(ids)) != len(ids):
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "a request appears twice in one batch")
@@ -169,6 +192,9 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             fresh = []                                                    # items to compute now
             for i, (it, st) in enumerate(zip(items, states)):
                 if it.step_id == st.next_step - 1 and st.last_reply is not None:
+                    if step_digest(it) != st.last_digest:                 # Ch 14
+                        context.abort(grpc.StatusCode.FAILED_PRECONDITION,
+                                      f"conflicting retry of {it.request_id!r} step {it.step_id}")
                     replies[i] = st.last_reply                            # a retry: same answer
                 elif it.step_id != st.next_step or it.start_pos != st.cache.length:
                     context.abort(grpc.StatusCode.FAILED_PRECONDITION,
@@ -189,13 +215,15 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
                 for row, i in enumerate(fresh):
                     st = states[i]
                     reply = pb.ForwardReply(request_id=ids[i], step_id=items[i].step_id,
-                                            compute_ms=compute_ms, cache_len=st.cache.length)
+                                            compute_ms=compute_ms, cache_len=st.cache.length,
+                                            generation=self.generation)
                     if self.stage.has_head:
                         reply.next_token = int(out[row, -1].argmax())
                     else:
                         reply.output.CopyFrom(tensor_to_proto(out[row:row + 1]))
                     st.next_step += 1
                     st.last_reply = reply
+                    st.last_digest = step_digest(items[i])
                     replies[i] = reply
         return pb.ForwardBatchReply(items=replies, compute_ms=compute_ms)
 

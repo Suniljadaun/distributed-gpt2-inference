@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 import grpc
 
-from src.coordinator.pipeline import N_CTX, DeadlineExceeded, Pipeline, generate
+from src.coordinator.pipeline import N_CTX, DeadlineExceeded, Pipeline, StaleReply, generate
 from src.coordinator.replay import generate_logged
 from src.coordinator.token_log import TokenLog
 
@@ -46,7 +46,7 @@ class Scheduler:
         self.queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self.lock = threading.Lock()
         self.counts = {"admitted": 0, "rejected": 0, "completed": 0, "expired": 0, "failed": 0, "retries": 0,
-                       "lost": 0, "replays": 0}
+                       "lost": 0, "replays": 0, "coalesced": 0}
         self.running = 0
         self.threads = [threading.Thread(target=self._serve, daemon=True) for _ in range(slots)]
 
@@ -93,6 +93,8 @@ class Scheduler:
         """Map an exception from the pipeline to (counter name, (status code, message)) for the client."""
         if isinstance(e, DeadlineExceeded):
             return "expired", (grpc.StatusCode.DEADLINE_EXCEEDED, str(e))
+        if isinstance(e, StaleReply):                            # Ch 14: an old generation answered
+            return "lost", (grpc.StatusCode.UNAVAILABLE, f"request lost: {e}; retry it")
         if isinstance(e, grpc.RpcError):
             if e.code() in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.FAILED_PRECONDITION):
                 # Ch 12: a worker died or restarted (and forgot this request's cache) mid-request

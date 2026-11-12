@@ -61,32 +61,36 @@ class ForwardBatchReply(_message.Message):
     def __init__(self, items: _Optional[_Iterable[_Union[ForwardReply, _Mapping]]] = ..., compute_ms: _Optional[float] = ...) -> None: ...
 
 class ForwardRequest(_message.Message):
-    __slots__ = ("request_id", "step_id", "input", "start_pos")
+    __slots__ = ("request_id", "step_id", "input", "start_pos", "expect_generation")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_FIELD_NUMBER: _ClassVar[int]
     START_POS_FIELD_NUMBER: _ClassVar[int]
+    EXPECT_GENERATION_FIELD_NUMBER: _ClassVar[int]
     request_id: str
     step_id: int
     input: Tensor
     start_pos: int
-    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., input: _Optional[_Union[Tensor, _Mapping]] = ..., start_pos: _Optional[int] = ...) -> None: ...
+    expect_generation: int
+    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., input: _Optional[_Union[Tensor, _Mapping]] = ..., start_pos: _Optional[int] = ..., expect_generation: _Optional[int] = ...) -> None: ...
 
 class ForwardReply(_message.Message):
-    __slots__ = ("request_id", "step_id", "output", "next_token", "compute_ms", "cache_len")
+    __slots__ = ("request_id", "step_id", "output", "next_token", "compute_ms", "cache_len", "generation")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_ID_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
     NEXT_TOKEN_FIELD_NUMBER: _ClassVar[int]
     COMPUTE_MS_FIELD_NUMBER: _ClassVar[int]
     CACHE_LEN_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
     request_id: str
     step_id: int
     output: Tensor
     next_token: int
     compute_ms: float
     cache_len: int
-    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., output: _Optional[_Union[Tensor, _Mapping]] = ..., next_token: _Optional[int] = ..., compute_ms: _Optional[float] = ..., cache_len: _Optional[int] = ...) -> None: ...
+    generation: int
+    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., output: _Optional[_Union[Tensor, _Mapping]] = ..., next_token: _Optional[int] = ..., compute_ms: _Optional[float] = ..., cache_len: _Optional[int] = ..., generation: _Optional[int] = ...) -> None: ...
 
 class InfoRequest(_message.Message):
     __slots__ = ()
@@ -161,7 +165,7 @@ class StatsRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class StatsReply(_message.Message):
-    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries", "lost", "replays")
+    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries", "lost", "replays", "coalesced")
     QUEUED_FIELD_NUMBER: _ClassVar[int]
     RUNNING_FIELD_NUMBER: _ClassVar[int]
     ADMITTED_FIELD_NUMBER: _ClassVar[int]
@@ -172,6 +176,7 @@ class StatsReply(_message.Message):
     RETRIES_FIELD_NUMBER: _ClassVar[int]
     LOST_FIELD_NUMBER: _ClassVar[int]
     REPLAYS_FIELD_NUMBER: _ClassVar[int]
+    COALESCED_FIELD_NUMBER: _ClassVar[int]
     queued: int
     running: int
     admitted: int
@@ -182,4 +187,5 @@ class StatsReply(_message.Message):
     retries: int
     lost: int
     replays: int
-    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ..., lost: _Optional[int] = ..., replays: _Optional[int] = ...) -> None: ...
+    coalesced: int
+    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ..., lost: _Optional[int] = ..., replays: _Optional[int] = ..., coalesced: _Optional[int] = ...) -> None: ...

@@ -1,5 +1,5 @@
 // inference.proto - Ch 7 Tensor, Ch 8 StageWorker, Ch 9 KV-cache, Ch 10 Coordinator, Ch 11 ForwardBatch,
-//                   Ch 12 Ping, Ch 13 replay counters
+//                   Ch 12 Ping, Ch 13 replay counters, Ch 14 fencing
 // The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
@@ -59,6 +59,7 @@ message ForwardRequest {
   int32 step_id = 2;       // 0 = prefill, then 1, 2, 3, ... one per generated token
   Tensor input = 3;        // first stage: token ids [1, s] int64; other stages: hidden [1, s, 768] float32
   int32 start_pos = 4;     // Ch 9: position of input's first token = tokens already in this request's cache
+  int64 expect_generation = 5;   // Ch 14: fencing token; the worker refuses the call if it is another generation (0 = no check)
 }
 
 message ForwardReply {
@@ -68,6 +69,7 @@ message ForwardReply {
   int64 next_token = 4;    // only the last stage: greedy choice for the next token
   double compute_ms = 5;   // time spent in the layers, measured inside the worker
   int32 cache_len = 6;     // Ch 9: positions in this request's cache after this step
+  int64 generation = 7;    // Ch 14: the generation that computed this reply
 }
 
 message InfoRequest {}
@@ -129,4 +131,5 @@ message StatsReply {
   int64 retries = 8;
   int64 lost = 9;          // Ch 12: in flight when a worker died; the client should retry
   int64 replays = 10;      // Ch 13: requests rebuilt from the log instead of being lost
+  int64 coalesced = 11;    // Ch 14: duplicate requests that waited for the original instead of running again
 }

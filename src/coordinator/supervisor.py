@@ -1,5 +1,5 @@
 """
-supervisor.py - Chapter 12
+supervisor.py - Chapter 12 (Chapter 14: listeners told about every new generation)
 Owns the worker processes. A monitor thread sends a heartbeat (Ping) to every worker every
 `interval_s`. A worker is declared DEAD when its process has exited, or when it misses
 `misses_allowed` heartbeats in a row (alive but hung). A dead worker is killed, restarted on the
@@ -43,6 +43,7 @@ class Supervisor:
         self.lock = threading.Lock()
         self.events: list[tuple[float, str, str]] = []          # (time, worker id, what happened)
         self.all_up = threading.Event()
+        self.listeners: list = []                               # Ch 14: called as fn(index, generation) on UP
         self._stop = threading.Event()
         self._monitor = threading.Thread(target=self._watch, daemon=True)
 
@@ -108,6 +109,8 @@ class Supervisor:
             if time.monotonic() > deadline:
                 raise RuntimeError(f"worker {w.spec.worker_id} not ready after {self.ready_timeout_s} s")
             time.sleep(0.05)
+        for listener in self.listeners:                         # Ch 14: e.g. the pipeline's fencing token
+            listener(self.workers.index(w), w.generation)
         with self.lock:
             w.up, w.misses, w.last_ok = True, 0, time.monotonic()
         self._log(w, f"UP as generation {w.generation}")

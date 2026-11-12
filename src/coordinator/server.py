@@ -1,10 +1,11 @@
 """
-server.py (coordinator) - Chapter 10 (Ch 11 batching; Ch 12 supervised workers; Ch 13 token log)
+server.py (coordinator) - Chapter 10 (Ch 11 batching; Ch 12 supervision; Ch 13 log; Ch 14 coalescing)
 The front door: a gRPC Coordinator service. Generate() admits a request into the Scheduler's
 bounded queue (or rejects it), waits for the result, and turns the outcome into a status code.
 Run (starts 2 workers + the coordinator):  python -m src.coordinator.server --port 50060
 """
 import argparse
+import threading
 import time
 from concurrent import futures
 
@@ -24,29 +25,47 @@ DEFAULT_TIMEOUT_S = 30.0          # used when the caller sets no deadline
 class CoordinatorService(pb_grpc.CoordinatorServicer):
     def __init__(self, scheduler: Scheduler) -> None:
         self.scheduler = scheduler
+        self.inflight: dict[str, Job] = {}                      # Ch 14: request id -> the job computing it
+        self.inflight_lock = threading.Lock()
 
     def Generate(self, request: pb.GenerateRequest, context: grpc.ServicerContext) -> pb.GenerateReply:
         if not request.prompt_ids:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "prompt_ids is empty")
         if not 1 <= request.max_new_tokens <= MAX_NEW_TOKENS:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"max_new_tokens must be 1..{MAX_NEW_TOKENS}")
-
-        log = self.scheduler.log                                # Ch 13: already answered? reply from the log
-        if log is not None and log.has(request.request_id):
-            rec = log.get(request.request_id)
-            if rec.status == "completed":
-                return pb.GenerateReply(request_id=request.request_id, new_ids=rec.tokens)
-
+        rid, prompt, max_new = request.request_id, list(request.prompt_ids), request.max_new_tokens
         remaining = context.time_remaining()                    # the caller's deadline, in seconds
         if remaining is None:
             remaining = DEFAULT_TIMEOUT_S
-        job = Job(request.request_id, list(request.prompt_ids), request.max_new_tokens,
-                  deadline=time.monotonic() + remaining)
-        if not self.scheduler.submit(job):
-            context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED,
-                          f"queue full ({self.scheduler.queue_size} waiting); retry later")
 
-        job.done.wait()                                         # the scheduler always finishes a job
+        with self.inflight_lock:
+            log = self.scheduler.log                            # Ch 13: already answered? reply from the log
+            if log is not None and log.has(rid):
+                rec = log.get(rid)
+                if (rec.prompt, rec.max_new) != (prompt, max_new):          # Ch 14: same id, other request
+                    context.abort(grpc.StatusCode.ALREADY_EXISTS, f"request id {rid!r} was used for a different request")
+                if rec.status == "completed":
+                    return pb.GenerateReply(request_id=rid, new_ids=rec.tokens)
+            job = self.inflight.get(rid)
+            if job is not None:                                 # Ch 14: the same request is already running
+                if (job.prompt_ids, job.max_new_tokens) != (prompt, max_new):
+                    context.abort(grpc.StatusCode.ALREADY_EXISTS, f"request id {rid!r} is running a different request")
+                self.scheduler._count("coalesced")
+                owner = False                                   # wait for it instead of running it twice
+            else:
+                job = Job(rid, prompt, max_new, deadline=time.monotonic() + remaining)
+                if not self.scheduler.submit(job):
+                    context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED,
+                                  f"queue full ({self.scheduler.queue_size} waiting); retry later")
+                self.inflight[rid] = job
+                owner = True
+
+        finished = job.done.wait(timeout=remaining)             # never longer than THIS caller's deadline
+        if owner:
+            with self.inflight_lock:
+                self.inflight.pop(rid, None)
+        if not finished:
+            context.abort(grpc.StatusCode.DEADLINE_EXCEEDED, "deadline passed while waiting for the result")
         if job.error is not None:
             context.abort(*job.error)
         return pb.GenerateReply(

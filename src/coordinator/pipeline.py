@@ -1,5 +1,5 @@
 """
-pipeline.py - Chapter 8 (Ch 9 KV-cache; Ch 10 deadlines, retries; Ch 11 step_batch; Ch 12 fast reconnect)
+pipeline.py - Chapter 8 (Ch 9 KV-cache; Ch 10 retries; Ch 11 step_batch; Ch 12 reconnect; Ch 14 fencing)
 The coordinator's view of the workers: send each step through the stages in order,
 and generate text token by token, exactly like src/model/generate.py but across processes.
 """
@@ -24,6 +24,10 @@ FAST_RECONNECT = [("grpc.initial_reconnect_backoff_ms", 100), ("grpc.min_reconne
 
 class DeadlineExceeded(Exception):
     """The REQUEST's deadline passed (not just one call's timeout)."""
+
+
+class StaleReply(Exception):
+    """Ch 14: a reply came from a worker generation other than the one we addressed."""
 
 
 def backoff_delay(attempt: int, base_s: float, cap_s: float) -> float:
@@ -52,6 +56,16 @@ class Pipeline:
         self.backoff_cap_s = backoff_cap_s
         self.channels = [grpc.insecure_channel(a, options=FAST_RECONNECT) for a in addresses]
         self.stubs = [pb_grpc.StageWorkerStub(c) for c in self.channels]
+        self.expected = [0] * len(addresses)     # Ch 14: generation each stage must be (0 = don't check)
+
+    def set_expected(self, stage: int, generation: int) -> None:
+        """Ch 14: from now on, only talk to (and only believe) this generation of `stage`."""
+        self.expected[stage] = generation
+
+    def _check_generation(self, stage: int, reply: pb.ForwardReply) -> None:
+        if self.expected[stage] and reply.generation != self.expected[stage]:
+            raise StaleReply(f"stage {stage}: reply from generation {reply.generation}, "
+                             f"expected {self.expected[stage]}")
 
     def wait_ready(self, timeout_s: float) -> None:
         for address, channel in zip(self.addresses, self.channels):
@@ -103,9 +117,11 @@ class Pipeline:
         start = time.perf_counter()
         message = tensor_to_proto(torch.tensor([new_ids]))
         compute, retries = [], 0
-        for stub in self.stubs:
-            request = pb.ForwardRequest(request_id=request_id, step_id=step_id, input=message, start_pos=start_pos)
+        for k, stub in enumerate(self.stubs):
+            request = pb.ForwardRequest(request_id=request_id, step_id=step_id, input=message, start_pos=start_pos,
+                                        expect_generation=self.expected[k])
             reply, r = self._forward(stub, request, deadline)
+            self._check_generation(k, reply)
             retries += r
             if (reply.request_id, reply.step_id) != (request_id, step_id):
                 raise RuntimeError(f"reply for {reply.request_id}/{reply.step_id}, expected {request_id}/{step_id}")
@@ -123,13 +139,15 @@ class Pipeline:
         start = time.perf_counter()
         inputs = [tensor_to_proto(torch.tensor([[tok]])) for _, _, tok, _ in items]
         compute, retries = [], 0
-        for stub in self.stubs:
+        for k, stub in enumerate(self.stubs):
             batch = pb.ForwardBatchRequest(items=[
-                pb.ForwardRequest(request_id=rid, step_id=sid, input=x, start_pos=pos)
+                pb.ForwardRequest(request_id=rid, step_id=sid, input=x, start_pos=pos,
+                                  expect_generation=self.expected[k])
                 for (rid, sid, _, pos), x in zip(items, inputs)])
             reply, r = self._call(stub.ForwardBatch, batch, deadline, f"batch of {len(items)}")
             retries += r
             for (rid, sid, _, pos), rep in zip(items, reply.items):
+                self._check_generation(k, rep)
                 if (rep.request_id, rep.step_id, rep.cache_len) != (rid, sid, pos + 1):
                     raise RuntimeError(f"batch reply {rep.request_id}/{rep.step_id}/{rep.cache_len} "
                                        f"does not match {rid}/{sid}/{pos + 1}")

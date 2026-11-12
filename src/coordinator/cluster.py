@@ -68,6 +68,9 @@ def supervised_cluster(layout: list[WorkerSpec], **options) -> Iterator[tuple[Pi
     supervisor = Supervisor(layout, **options)
     supervisor.start()
     pipe = Pipeline([spec.address for spec in layout], timeout_s=2.0)
+    for i, s in enumerate(supervisor.status()):                  # Ch 14: fence every call to the current
+        pipe.set_expected(i, s["generation"])                    #        generation, and follow restarts
+    supervisor.listeners.append(pipe.set_expected)
     try:
         pipe.check_layout(n_layer=layout[-1].last)
         yield pipe, supervisor
