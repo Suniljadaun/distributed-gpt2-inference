@@ -1,5 +1,5 @@
 """
-scheduler.py - Chapter 10 (Ch 11: BatchingScheduler; Ch 12: wait for healthy workers, "lost" requests)
+scheduler.py - Chapter 10 (Ch 11 BatchingScheduler; Ch 12 health, "lost"; Ch 13 logged generation + replay)
 Admission control: a BOUNDED queue of jobs in front of the pipeline, served by `slots` threads.
 Full queue -> reject at once. Deadline passed while waiting -> drop without running it.
 Ch 11: BatchingScheduler runs many requests per thread as one micro-batch (continuous batching).
@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 import grpc
 
 from src.coordinator.pipeline import N_CTX, DeadlineExceeded, Pipeline, generate
+from src.coordinator.replay import generate_logged
+from src.coordinator.token_log import TokenLog
 
 STOP = None
 
@@ -28,21 +30,23 @@ class Job:
     finished: float | None = None
     new_ids: list[int] = field(default_factory=list)
     retries: int = 0
+    replays: int = 0                                            # Ch 13
     error: tuple[grpc.StatusCode, str] | None = None
     done: threading.Event = field(default_factory=threading.Event)
 
 
 class Scheduler:
     def __init__(self, pipe: Pipeline, queue_size: int, slots: int = 1, eos_id: int | None = None,
-                 health=None) -> None:
+                 health=None, log: TokenLog | None = None) -> None:
         self.pipe = pipe
         self.queue_size = queue_size
         self.eos_id = eos_id
         self.health = health                       # Ch 12: a Supervisor (or None): wait for it before starting work
+        self.log = log                             # Ch 13: commit tokens here and replay after worker failures
         self.queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self.lock = threading.Lock()
         self.counts = {"admitted": 0, "rejected": 0, "completed": 0, "expired": 0, "failed": 0, "retries": 0,
-                       "lost": 0}
+                       "lost": 0, "replays": 0}
         self.running = 0
         self.threads = [threading.Thread(target=self._serve, daemon=True) for _ in range(slots)]
 
@@ -106,14 +110,20 @@ class Scheduler:
             job.started = time.monotonic()
             outcome = "completed"
             try:
-                job.new_ids, timings = generate(self.pipe, job.request_id, job.prompt_ids,
-                                                job.max_new_tokens, self.eos_id, job.deadline)
-                job.retries = sum(t.retries for t in timings)
+                if self.log is not None:                         # Ch 13: logged, survives worker restarts
+                    result = generate_logged(self.pipe, self.log, job.request_id, job.prompt_ids,
+                                             job.max_new_tokens, self.eos_id, job.deadline, self.health)
+                    job.new_ids, job.replays = result.new_ids, result.replays
+                else:
+                    job.new_ids, timings = generate(self.pipe, job.request_id, job.prompt_ids,
+                                                    job.max_new_tokens, self.eos_id, job.deadline)
+                    job.retries = sum(t.retries for t in timings)
             except Exception as e:                               # a bug must not kill the serving thread
                 outcome, job.error = self._outcome(e)
             with self.lock:
                 self.running -= 1
             self._count("retries", job.retries)
+            self._count("replays", job.replays)
             self._finish(job, outcome)
 
     def _finish(self, job: Job, outcome: str) -> None:

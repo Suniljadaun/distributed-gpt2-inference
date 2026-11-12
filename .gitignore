@@ -14,3 +14,6 @@ __pycache__/
 
 book/
 PLAN.md
+
+# Ch 13 token logs (runtime data)
+logs/

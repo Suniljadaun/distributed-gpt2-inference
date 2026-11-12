@@ -141,25 +141,27 @@ class GenerateRequest(_message.Message):
     def __init__(self, request_id: _Optional[str] = ..., prompt_ids: _Optional[_Iterable[int]] = ..., max_new_tokens: _Optional[int] = ...) -> None: ...
 
 class GenerateReply(_message.Message):
-    __slots__ = ("request_id", "new_ids", "queue_ms", "service_ms", "retries")
+    __slots__ = ("request_id", "new_ids", "queue_ms", "service_ms", "retries", "replays")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     NEW_IDS_FIELD_NUMBER: _ClassVar[int]
     QUEUE_MS_FIELD_NUMBER: _ClassVar[int]
     SERVICE_MS_FIELD_NUMBER: _ClassVar[int]
     RETRIES_FIELD_NUMBER: _ClassVar[int]
+    REPLAYS_FIELD_NUMBER: _ClassVar[int]
     request_id: str
     new_ids: _containers.RepeatedScalarFieldContainer[int]
     queue_ms: float
     service_ms: float
     retries: int
-    def __init__(self, request_id: _Optional[str] = ..., new_ids: _Optional[_Iterable[int]] = ..., queue_ms: _Optional[float] = ..., service_ms: _Optional[float] = ..., retries: _Optional[int] = ...) -> None: ...
+    replays: int
+    def __init__(self, request_id: _Optional[str] = ..., new_ids: _Optional[_Iterable[int]] = ..., queue_ms: _Optional[float] = ..., service_ms: _Optional[float] = ..., retries: _Optional[int] = ..., replays: _Optional[int] = ...) -> None: ...
 
 class StatsRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class StatsReply(_message.Message):
-    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries", "lost")
+    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries", "lost", "replays")
     QUEUED_FIELD_NUMBER: _ClassVar[int]
     RUNNING_FIELD_NUMBER: _ClassVar[int]
     ADMITTED_FIELD_NUMBER: _ClassVar[int]
@@ -169,6 +171,7 @@ class StatsReply(_message.Message):
     FAILED_FIELD_NUMBER: _ClassVar[int]
     RETRIES_FIELD_NUMBER: _ClassVar[int]
     LOST_FIELD_NUMBER: _ClassVar[int]
+    REPLAYS_FIELD_NUMBER: _ClassVar[int]
     queued: int
     running: int
     admitted: int
@@ -178,4 +181,5 @@ class StatsReply(_message.Message):
     failed: int
     retries: int
     lost: int
-    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ..., lost: _Optional[int] = ...) -> None: ...
+    replays: int
+    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ..., lost: _Optional[int] = ..., replays: _Optional[int] = ...) -> None: ...

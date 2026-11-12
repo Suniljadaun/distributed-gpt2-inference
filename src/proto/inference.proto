@@ -1,4 +1,5 @@
-// inference.proto - Ch 7 Tensor, Ch 8 StageWorker, Ch 9 KV-cache, Ch 10 Coordinator, Ch 11 ForwardBatch, Ch 12 Ping
+// inference.proto - Ch 7 Tensor, Ch 8 StageWorker, Ch 9 KV-cache, Ch 10 Coordinator, Ch 11 ForwardBatch,
+//                   Ch 12 Ping, Ch 13 replay counters
 // The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
@@ -112,6 +113,7 @@ message GenerateReply {
   double queue_ms = 3;     // time waiting in the admission queue
   double service_ms = 4;   // time being generated
   int32 retries = 5;       // worker calls that had to be retried
+  int32 replays = 6;       // Ch 13: times the request was rebuilt from the log after a worker failure
 }
 
 message StatsRequest {}
@@ -126,4 +128,5 @@ message StatsReply {
   int64 failed = 7;        // a worker error that retries could not fix
   int64 retries = 8;
   int64 lost = 9;          // Ch 12: in flight when a worker died; the client should retry
+  int64 replays = 10;      // Ch 13: requests rebuilt from the log instead of being lost
 }
