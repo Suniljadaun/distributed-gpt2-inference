@@ -1,5 +1,5 @@
 """
-server.py (coordinator) - Chapter 10 (Chapter 11: slots and continuous batching options)
+server.py (coordinator) - Chapter 10 (Ch 11: slots, continuous batching; Ch 12: supervised workers)
 The front door: a gRPC Coordinator service. Generate() admits a request into the Scheduler's
 bounded queue (or rejects it), waits for the result, and turns the outcome into a status code.
 Run (starts 2 workers + the coordinator):  python -m src.coordinator.server --port 50060
@@ -10,7 +10,7 @@ from concurrent import futures
 
 import grpc
 
-from src.coordinator.cluster import running_cluster, two_stage_layout
+from src.coordinator.cluster import supervised_cluster, two_stage_layout
 from src.coordinator.pipeline import Pipeline
 from src.coordinator.scheduler import BatchingScheduler, Job, Scheduler
 from src.proto import inference_pb2 as pb
@@ -53,13 +53,14 @@ class CoordinatorService(pb_grpc.CoordinatorServicer):
 
 
 def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1,
-                      max_batch: int = 0) -> tuple[grpc.Server, Scheduler]:
-    """slots = requests (or, with batching, micro-batch groups) in flight; max_batch > 0 turns on Ch 11 batching."""
+                      max_batch: int = 0, health=None) -> tuple[grpc.Server, Scheduler]:
+    """slots = requests (or, with batching, micro-batch groups) in flight; max_batch > 0 turns on Ch 11 batching.
+    health = a Ch 12 Supervisor: new work waits while a worker is being restarted."""
     if max_batch > 0:
-        scheduler = BatchingScheduler(pipe, queue_size, max_batch=max_batch, groups=slots)
+        scheduler = BatchingScheduler(pipe, queue_size, max_batch=max_batch, groups=slots, health=health)
         in_flight = slots * max_batch
     else:
-        scheduler = Scheduler(pipe, queue_size, slots)
+        scheduler = Scheduler(pipe, queue_size, slots, health=health)
         in_flight = slots
     scheduler.start()
     # enough threads for every queued + running request to wait, plus a few for Stats/rejections
@@ -77,8 +78,9 @@ def main() -> None:
     parser.add_argument("--slots", type=int, default=1, help="Ch 11: requests / micro-batch groups in flight")
     parser.add_argument("--max-batch", type=int, default=0, help="Ch 11: >0 turns on continuous batching")
     args = parser.parse_args()
-    with running_cluster(two_stage_layout(), timeout_s=2.0) as pipe:
-        server, scheduler = start_coordinator(pipe, args.port, args.queue_size, args.slots, args.max_batch)
+    with supervised_cluster(two_stage_layout()) as (pipe, supervisor):
+        server, scheduler = start_coordinator(pipe, args.port, args.queue_size, args.slots, args.max_batch,
+                                              health=supervisor)
         print(f"[coordinator] listening on 127.0.0.1:{args.port}, queue {args.queue_size}, "
               f"slots {args.slots}, max batch {args.max_batch}", flush=True)
         try:

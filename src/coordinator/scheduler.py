@@ -1,5 +1,5 @@
 """
-scheduler.py - Chapter 10 (Chapter 11: BatchingScheduler)
+scheduler.py - Chapter 10 (Ch 11: BatchingScheduler; Ch 12: wait for healthy workers, "lost" requests)
 Admission control: a BOUNDED queue of jobs in front of the pipeline, served by `slots` threads.
 Full queue -> reject at once. Deadline passed while waiting -> drop without running it.
 Ch 11: BatchingScheduler runs many requests per thread as one micro-batch (continuous batching).
@@ -33,13 +33,16 @@ class Job:
 
 
 class Scheduler:
-    def __init__(self, pipe: Pipeline, queue_size: int, slots: int = 1, eos_id: int | None = None) -> None:
+    def __init__(self, pipe: Pipeline, queue_size: int, slots: int = 1, eos_id: int | None = None,
+                 health=None) -> None:
         self.pipe = pipe
         self.queue_size = queue_size
         self.eos_id = eos_id
+        self.health = health                       # Ch 12: a Supervisor (or None): wait for it before starting work
         self.queue: queue.Queue = queue.Queue(maxsize=queue_size)
         self.lock = threading.Lock()
-        self.counts = {"admitted": 0, "rejected": 0, "completed": 0, "expired": 0, "failed": 0, "retries": 0}
+        self.counts = {"admitted": 0, "rejected": 0, "completed": 0, "expired": 0, "failed": 0, "retries": 0,
+                       "lost": 0}
         self.running = 0
         self.threads = [threading.Thread(target=self._serve, daemon=True) for _ in range(slots)]
 
@@ -71,11 +74,32 @@ class Scheduler:
         with self.lock:
             self.counts[name] += n
 
+    def _ready_to_run(self, job: Job) -> bool:
+        """Deadline still ahead, and (Ch 12) every worker UP, waiting for a restart if one is under way.
+        On False, the job has already been finished as expired."""
+        if time.monotonic() < job.deadline and (
+                self.health is None or self.health.wait_all_up(job.deadline - time.monotonic())):
+            return True
+        job.error = (grpc.StatusCode.DEADLINE_EXCEEDED, "deadline passed while queued")
+        self._finish(job, "expired")
+        return False
+
+    @staticmethod
+    def _outcome(e: Exception) -> tuple[str, tuple[grpc.StatusCode, str]]:
+        """Map an exception from the pipeline to (counter name, (status code, message)) for the client."""
+        if isinstance(e, DeadlineExceeded):
+            return "expired", (grpc.StatusCode.DEADLINE_EXCEEDED, str(e))
+        if isinstance(e, grpc.RpcError):
+            if e.code() in (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.FAILED_PRECONDITION):
+                # Ch 12: a worker died or restarted (and forgot this request's cache) mid-request
+                return "lost", (grpc.StatusCode.UNAVAILABLE,
+                                f"request lost: a worker failed or restarted ({e.details()}); retry it")
+            return "failed", (e.code(), f"worker error: {e.details()}")
+        return "failed", (grpc.StatusCode.INTERNAL, f"{type(e).__name__}: {e}")
+
     def _serve(self) -> None:
         while (job := self.queue.get()) is not STOP:
-            if time.monotonic() >= job.deadline:                 # nobody is waiting for it any more
-                job.error = (grpc.StatusCode.DEADLINE_EXCEEDED, "deadline passed while queued")
-                self._finish(job, "expired")
+            if not self._ready_to_run(job):
                 continue
             with self.lock:
                 self.running += 1
@@ -85,12 +109,8 @@ class Scheduler:
                 job.new_ids, timings = generate(self.pipe, job.request_id, job.prompt_ids,
                                                 job.max_new_tokens, self.eos_id, job.deadline)
                 job.retries = sum(t.retries for t in timings)
-            except DeadlineExceeded as e:
-                job.error, outcome = (grpc.StatusCode.DEADLINE_EXCEEDED, str(e)), "expired"
-            except grpc.RpcError as e:
-                job.error, outcome = (e.code(), f"worker error: {e.details()}"), "failed"
             except Exception as e:                               # a bug must not kill the serving thread
-                job.error, outcome = (grpc.StatusCode.INTERNAL, f"{type(e).__name__}: {e}"), "failed"
+                outcome, job.error = self._outcome(e)
             with self.lock:
                 self.running -= 1
             self._count("retries", job.retries)
@@ -117,8 +137,8 @@ class BatchingScheduler(Scheduler):
     ForwardBatch call per stage for the whole group."""
 
     def __init__(self, pipe: Pipeline, queue_size: int, max_batch: int = 8, groups: int = 1,
-                 eos_id: int | None = None) -> None:
-        super().__init__(pipe, queue_size, slots=groups, eos_id=eos_id)
+                 eos_id: int | None = None, health=None) -> None:
+        super().__init__(pipe, queue_size, slots=groups, eos_id=eos_id, health=health)
         self.max_batch = max_batch
         self.threads = [threading.Thread(target=self._serve_batches, daemon=True) for _ in range(groups)]
 
@@ -133,10 +153,7 @@ class BatchingScheduler(Scheduler):
                     break
                 if job is STOP:
                     stopping = True
-                elif time.monotonic() >= job.deadline:
-                    job.error = (grpc.StatusCode.DEADLINE_EXCEEDED, "deadline passed while queued")
-                    self._finish(job, "expired")
-                else:
+                elif self._ready_to_run(job):
                     joined = self._prefill(job)
                     if joined is not None:
                         active.append(joined)
@@ -182,14 +199,6 @@ class BatchingScheduler(Scheduler):
             else:
                 still.append(a)
         return still
-
-    @staticmethod
-    def _outcome(e: Exception) -> tuple[str, tuple[grpc.StatusCode, str]]:
-        if isinstance(e, DeadlineExceeded):
-            return "expired", (grpc.StatusCode.DEADLINE_EXCEEDED, str(e))
-        if isinstance(e, grpc.RpcError):
-            return "failed", (e.code(), f"worker error: {e.details()}")
-        return "failed", (grpc.StatusCode.INTERNAL, f"{type(e).__name__}: {e}")
 
     def _leave(self, job: Job, outcome: str, error: tuple[grpc.StatusCode, str] | None = None) -> None:
         self.pipe.release(job.request_id)

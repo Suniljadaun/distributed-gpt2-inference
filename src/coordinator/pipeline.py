@@ -1,5 +1,5 @@
 """
-pipeline.py - Chapter 8 (Ch 9: KV-cache, Release; Ch 10: deadlines, retries; Ch 11: step_batch)
+pipeline.py - Chapter 8 (Ch 9 KV-cache; Ch 10 deadlines, retries; Ch 11 step_batch; Ch 12 fast reconnect)
 The coordinator's view of the workers: send each step through the stages in order,
 and generate text token by token, exactly like src/model/generate.py but across processes.
 """
@@ -17,6 +17,9 @@ from src.proto.tensor_codec import tensor_to_proto
 
 N_CTX = 1024
 RETRYABLE = {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
+# Ch 12: after a worker restarts on the same port, reconnect within ~0.5 s (gRPC's default backoff grows to 120 s)
+FAST_RECONNECT = [("grpc.initial_reconnect_backoff_ms", 100), ("grpc.min_reconnect_backoff_ms", 100),
+                  ("grpc.max_reconnect_backoff_ms", 500)]
 
 
 class DeadlineExceeded(Exception):
@@ -47,7 +50,7 @@ class Pipeline:
         self.max_attempts = max_attempts        # 1 = never retry
         self.backoff_base_s = backoff_base_s
         self.backoff_cap_s = backoff_cap_s
-        self.channels = [grpc.insecure_channel(a) for a in addresses]
+        self.channels = [grpc.insecure_channel(a, options=FAST_RECONNECT) for a in addresses]
         self.stubs = [pb_grpc.StageWorkerStub(c) for c in self.channels]
 
     def wait_ready(self, timeout_s: float) -> None:
@@ -139,7 +142,7 @@ class Pipeline:
         """Tell every worker to drop this request's KV-cache. Best effort: never raises."""
         for stub in self.stubs:
             try:
-                stub.Release(pb.ReleaseRequest(request_id=request_id), timeout=self.timeout_s)
+                stub.Release(pb.ReleaseRequest(request_id=request_id), timeout=min(self.timeout_s, 1.0))
             except grpc.RpcError:
                 pass                                   # a dead worker has no cache to free anyway
 

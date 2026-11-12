@@ -1,4 +1,4 @@
-// inference.proto - Ch 7 (Tensor), Ch 8 (StageWorker), Ch 9 (KV-cache), Ch 10 (Coordinator), Ch 11 (ForwardBatch)
+// inference.proto - Ch 7 Tensor, Ch 8 StageWorker, Ch 9 KV-cache, Ch 10 Coordinator, Ch 11 ForwardBatch, Ch 12 Ping
 // The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
@@ -30,6 +30,17 @@ service StageWorker {
   rpc Info (InfoRequest) returns (InfoReply);            // which layers do you hold?
   rpc Release (ReleaseRequest) returns (ReleaseReply);   // Ch 9: forget a finished request's KV-cache
   rpc ForwardBatch (ForwardBatchRequest) returns (ForwardBatchReply);   // Ch 11: one decode step, many requests
+  rpc Ping (PingRequest) returns (PingReply);            // Ch 12: heartbeat, cheap, answered without the model
+}
+
+// Ch 12: heartbeat
+message PingRequest {}
+
+message PingReply {
+  string worker_id = 1;
+  int64 generation = 2;      // which incarnation of this worker is answering
+  int32 cached_requests = 3;
+  double uptime_s = 4;
 }
 
 // Ch 11: a micro-batch. Every item is a single-token DECODE step of a different request.
@@ -70,6 +81,7 @@ message InfoReply {
   int64 param_bytes = 7;
   int32 cached_requests = 8;   // Ch 9: requests whose KV-cache this worker holds
   int64 kv_bytes = 9;          // Ch 9: total size of those caches
+  int64 generation = 10;       // Ch 12: incarnation number, +1 on every restart
 }
 
 message ReleaseRequest {
@@ -113,4 +125,5 @@ message StatsReply {
   int64 expired = 6;       // deadline passed (in the queue or while running)
   int64 failed = 7;        // a worker error that retries could not fix
   int64 retries = 8;
+  int64 lost = 9;          // Ch 12: in flight when a worker died; the client should retry
 }

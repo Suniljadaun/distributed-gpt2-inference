@@ -30,6 +30,22 @@ class Tensor(_message.Message):
     data: bytes
     def __init__(self, shape: _Optional[_Iterable[int]] = ..., dtype: _Optional[_Union[DType, str]] = ..., data: _Optional[bytes] = ...) -> None: ...
 
+class PingRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class PingReply(_message.Message):
+    __slots__ = ("worker_id", "generation", "cached_requests", "uptime_s")
+    WORKER_ID_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
+    CACHED_REQUESTS_FIELD_NUMBER: _ClassVar[int]
+    UPTIME_S_FIELD_NUMBER: _ClassVar[int]
+    worker_id: str
+    generation: int
+    cached_requests: int
+    uptime_s: float
+    def __init__(self, worker_id: _Optional[str] = ..., generation: _Optional[int] = ..., cached_requests: _Optional[int] = ..., uptime_s: _Optional[float] = ...) -> None: ...
+
 class ForwardBatchRequest(_message.Message):
     __slots__ = ("items",)
     ITEMS_FIELD_NUMBER: _ClassVar[int]
@@ -77,7 +93,7 @@ class InfoRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class InfoReply(_message.Message):
-    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes")
+    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes", "generation")
     WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     FIRST_LAYER_FIELD_NUMBER: _ClassVar[int]
     LAST_LAYER_FIELD_NUMBER: _ClassVar[int]
@@ -87,6 +103,7 @@ class InfoReply(_message.Message):
     PARAM_BYTES_FIELD_NUMBER: _ClassVar[int]
     CACHED_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     KV_BYTES_FIELD_NUMBER: _ClassVar[int]
+    GENERATION_FIELD_NUMBER: _ClassVar[int]
     worker_id: str
     first_layer: int
     last_layer: int
@@ -96,7 +113,8 @@ class InfoReply(_message.Message):
     param_bytes: int
     cached_requests: int
     kv_bytes: int
-    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ...) -> None: ...
+    generation: int
+    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ..., generation: _Optional[int] = ...) -> None: ...
 
 class ReleaseRequest(_message.Message):
     __slots__ = ("request_id",)
@@ -141,7 +159,7 @@ class StatsRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class StatsReply(_message.Message):
-    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries")
+    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries", "lost")
     QUEUED_FIELD_NUMBER: _ClassVar[int]
     RUNNING_FIELD_NUMBER: _ClassVar[int]
     ADMITTED_FIELD_NUMBER: _ClassVar[int]
@@ -150,6 +168,7 @@ class StatsReply(_message.Message):
     EXPIRED_FIELD_NUMBER: _ClassVar[int]
     FAILED_FIELD_NUMBER: _ClassVar[int]
     RETRIES_FIELD_NUMBER: _ClassVar[int]
+    LOST_FIELD_NUMBER: _ClassVar[int]
     queued: int
     running: int
     admitted: int
@@ -158,4 +177,5 @@ class StatsReply(_message.Message):
     expired: int
     failed: int
     retries: int
-    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ...) -> None: ...
+    lost: int
+    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ..., lost: _Optional[int] = ...) -> None: ...

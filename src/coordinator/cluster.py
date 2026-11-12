@@ -1,7 +1,8 @@
 """
-cluster.py - Chapter 8
+cluster.py - Chapter 8 (Ch 12: generation numbers, supervised_cluster)
 Start the worker processes for a layout, wait until they are ready, check the layout,
 hand back a Pipeline, and always stop the workers afterwards.
+Ch 12: supervised_cluster does the same through a Supervisor that also restarts dead workers.
 """
 import subprocess
 import sys
@@ -21,16 +22,19 @@ class WorkerSpec:
     embed: bool = False
     head: bool = False
     extra_args: tuple[str, ...] = ()       # Ch 10: e.g. ("--fail-every", "3") for fault injection
+    first_gen_args: tuple[str, ...] = ()   # Ch 12: only for generation 1, e.g. ("--hang-after-s", "3")
 
     @property
     def address(self) -> str:
         return f"127.0.0.1:{self.port}"
 
-    def command(self) -> list[str]:
+    def command(self, generation: int = 1) -> list[str]:
         cmd = [sys.executable, "-m", "src.worker.server", "--worker-id", self.worker_id,
-               "--port", str(self.port), "--first", str(self.first), "--last", str(self.last)]
+               "--port", str(self.port), "--first", str(self.first), "--last", str(self.last),
+               "--generation", str(generation)]
         cmd += (["--embed"] if self.embed else []) + (["--head"] if self.head else [])
-        return cmd + list(self.extra_args)
+        cmd += list(self.extra_args)
+        return cmd + (list(self.first_gen_args) if generation == 1 else [])   # a restart is a clean worker
 
 
 def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -> list[WorkerSpec]:
@@ -54,3 +58,19 @@ def running_cluster(layout: list[WorkerSpec], ready_timeout_s: float = 60.0, **p
             p.kill()
         for p in procs:
             p.wait()
+
+
+@contextmanager
+def supervised_cluster(layout: list[WorkerSpec], **options) -> Iterator[tuple[Pipeline, "Supervisor"]]:
+    """Ch 12: like running_cluster, but a Supervisor owns the processes and restarts dead workers.
+    `options` go to the Supervisor (interval_s, misses_allowed, ping_timeout_s, ...)."""
+    from src.coordinator.supervisor import Supervisor       # imported here: supervisor.py imports this module
+    supervisor = Supervisor(layout, **options)
+    supervisor.start()
+    pipe = Pipeline([spec.address for spec in layout], timeout_s=2.0)
+    try:
+        pipe.check_layout(n_layer=layout[-1].last)
+        yield pipe, supervisor
+    finally:
+        pipe.close()
+        supervisor.stop()

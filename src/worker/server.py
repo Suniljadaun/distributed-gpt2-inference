@@ -1,10 +1,11 @@
 """
-server.py - Chapter 8 (Ch 9: KV-cache, step ordering, Release; Ch 10: fault injection; Ch 11: ForwardBatch)
+server.py - Chapter 8 (Ch 9 KV-cache; Ch 10 faults; Ch 11 ForwardBatch; Ch 12 Ping, generation, hang fault)
 A worker process: holds one Stage and serves it over gRPC.
 Run:  python -m src.worker.server --worker-id A --port 50061 --first 0 --last 3 --embed
       python -m src.worker.server --worker-id B --port 50062 --first 3 --last 6 --head
 """
 import argparse
+import math
 import os
 import threading
 import time
@@ -38,19 +39,36 @@ class FaultPlan:
     fail_every: int = 0      # every Nth Forward call fails with UNAVAILABLE before doing anything
     slow_every: int = 0      # every Nth Forward call does its work, then replies late ...
     slow_ms: int = 0         # ... by this many milliseconds
+    hang_after_s: float = 0  # Ch 12: after this many seconds, stop answering ANY call (alive but hung)
 
 
 class StageWorkerService(pb_grpc.StageWorkerServicer):
-    def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan()) -> None:
+    def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan(), generation: int = 1) -> None:
         self.worker_id = worker_id
         self.stage = stage
         self.faults = faults
+        self.generation = generation                    # Ch 12: which incarnation of this worker we are
+        self.started = time.monotonic()
+        self.hang_at = self.started + faults.hang_after_s if faults.hang_after_s else math.inf
         self.requests: dict[str, RequestState] = {}
         self.requests_lock = threading.Lock()           # protects the dict itself
         self.calls = 0                                  # Forward calls so far, for fault injection
         self.calls_lock = threading.Lock()
 
+    def _maybe_hang(self) -> None:
+        """Ch 12 fault: once hang_at has passed, every call blocks forever, like a deadlocked process."""
+        if time.monotonic() >= self.hang_at:
+            time.sleep(3600)
+
+    def Ping(self, request: pb.PingRequest, context: grpc.ServicerContext) -> pb.PingReply:
+        self._maybe_hang()
+        with self.requests_lock:
+            cached = len(self.requests)
+        return pb.PingReply(worker_id=self.worker_id, generation=self.generation, cached_requests=cached,
+                            uptime_s=time.monotonic() - self.started)
+
     def Info(self, request: pb.InfoRequest, context: grpc.ServicerContext) -> pb.InfoReply:
+        self._maybe_hang()
         s = self.stage
         with self.requests_lock:
             states = list(self.requests.values())
@@ -59,9 +77,11 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             has_embed=s.has_embed, has_head=s.has_head, pid=os.getpid(),
             param_bytes=sum(p.numel() * p.element_size() for p in s.parameters()),
             cached_requests=len(states), kv_bytes=sum(st.cache.nbytes for st in states),
+            generation=self.generation,
         )
 
     def Release(self, request: pb.ReleaseRequest, context: grpc.ServicerContext) -> pb.ReleaseReply:
+        self._maybe_hang()
         with self.requests_lock:
             state = self.requests.pop(request.request_id, None)
         if state is None:
@@ -69,6 +89,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
         return pb.ReleaseReply(existed=True, freed_bytes=state.cache.nbytes)
 
     def Forward(self, request: pb.ForwardRequest, context: grpc.ServicerContext) -> pb.ForwardReply:
+        self._maybe_hang()
         with self.calls_lock:
             self.calls += 1
             call_no = self.calls
@@ -125,6 +146,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
 
     def ForwardBatch(self, request: pb.ForwardBatchRequest, context: grpc.ServicerContext) -> pb.ForwardBatchReply:
         """Ch 11: one decode step (1 token) for several requests, computed as ONE batch."""
+        self._maybe_hang()
         items = list(request.items)
         ids = [it.request_id for it in items]
         if len(set(ids)) != len(ids):
@@ -190,17 +212,20 @@ def main() -> None:
     parser.add_argument("--slow-every", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--slow-ms", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--threads", type=int, default=0, help="Ch 11: torch threads (0 = PyTorch's default)")
+    parser.add_argument("--generation", type=int, default=1, help="Ch 12: incarnation number, set by the supervisor")
+    parser.add_argument("--hang-after-s", type=float, default=0, help="Ch 12 fault injection")
     args = parser.parse_args()
 
     if args.threads:
         torch.set_num_threads(args.threads)
     stage = load_stage(args.first, args.last, args.embed, args.head)
-    faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms)
+    faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms, args.hang_after_s)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
-    pb_grpc.add_StageWorkerServicer_to_server(StageWorkerService(args.worker_id, stage, faults), server)
+    service = StageWorkerService(args.worker_id, stage, faults, args.generation)
+    pb_grpc.add_StageWorkerServicer_to_server(service, server)
     server.add_insecure_port(f"127.0.0.1:{args.port}")
     server.start()
-    print(f"[worker {args.worker_id} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
+    print(f"[worker {args.worker_id} gen {args.generation} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
           f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}"
           f"{f'  FAULTS {faults}' if faults != FaultPlan() else ''}", flush=True)
     server.wait_for_termination()

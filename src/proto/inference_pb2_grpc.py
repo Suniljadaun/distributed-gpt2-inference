@@ -56,6 +56,11 @@ class StageWorkerStub:
                 request_serializer=src_dot_proto_dot_inference__pb2.ForwardBatchRequest.SerializeToString,
                 response_deserializer=src_dot_proto_dot_inference__pb2.ForwardBatchReply.FromString,
                 _registered_method=True)
+        self.Ping = channel.unary_unary(
+                '/inference.StageWorker/Ping',
+                request_serializer=src_dot_proto_dot_inference__pb2.PingRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.PingReply.FromString,
+                _registered_method=True)
 
 
 class StageWorkerServicer:
@@ -91,6 +96,13 @@ class StageWorkerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Ping(self, request, context):
+        """Ch 12: heartbeat, cheap, answered without the model
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_StageWorkerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -113,6 +125,11 @@ def add_StageWorkerServicer_to_server(servicer, server):
                     servicer.ForwardBatch,
                     request_deserializer=src_dot_proto_dot_inference__pb2.ForwardBatchRequest.FromString,
                     response_serializer=src_dot_proto_dot_inference__pb2.ForwardBatchReply.SerializeToString,
+            ),
+            'Ping': grpc.unary_unary_rpc_method_handler(
+                    servicer.Ping,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.PingRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.PingReply.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -225,6 +242,33 @@ class StageWorker:
             '/inference.StageWorker/ForwardBatch',
             src_dot_proto_dot_inference__pb2.ForwardBatchRequest.SerializeToString,
             src_dot_proto_dot_inference__pb2.ForwardBatchReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Ping(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/Ping',
+            src_dot_proto_dot_inference__pb2.PingRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.PingReply.FromString,
             options,
             channel_credentials,
             insecure,
