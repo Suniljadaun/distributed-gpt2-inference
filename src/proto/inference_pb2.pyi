@@ -97,3 +97,51 @@ class ReleaseReply(_message.Message):
     existed: bool
     freed_bytes: int
     def __init__(self, existed: _Optional[bool] = ..., freed_bytes: _Optional[int] = ...) -> None: ...
+
+class GenerateRequest(_message.Message):
+    __slots__ = ("request_id", "prompt_ids", "max_new_tokens")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    PROMPT_IDS_FIELD_NUMBER: _ClassVar[int]
+    MAX_NEW_TOKENS_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    prompt_ids: _containers.RepeatedScalarFieldContainer[int]
+    max_new_tokens: int
+    def __init__(self, request_id: _Optional[str] = ..., prompt_ids: _Optional[_Iterable[int]] = ..., max_new_tokens: _Optional[int] = ...) -> None: ...
+
+class GenerateReply(_message.Message):
+    __slots__ = ("request_id", "new_ids", "queue_ms", "service_ms", "retries")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    NEW_IDS_FIELD_NUMBER: _ClassVar[int]
+    QUEUE_MS_FIELD_NUMBER: _ClassVar[int]
+    SERVICE_MS_FIELD_NUMBER: _ClassVar[int]
+    RETRIES_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    new_ids: _containers.RepeatedScalarFieldContainer[int]
+    queue_ms: float
+    service_ms: float
+    retries: int
+    def __init__(self, request_id: _Optional[str] = ..., new_ids: _Optional[_Iterable[int]] = ..., queue_ms: _Optional[float] = ..., service_ms: _Optional[float] = ..., retries: _Optional[int] = ...) -> None: ...
+
+class StatsRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class StatsReply(_message.Message):
+    __slots__ = ("queued", "running", "admitted", "rejected", "completed", "expired", "failed", "retries")
+    QUEUED_FIELD_NUMBER: _ClassVar[int]
+    RUNNING_FIELD_NUMBER: _ClassVar[int]
+    ADMITTED_FIELD_NUMBER: _ClassVar[int]
+    REJECTED_FIELD_NUMBER: _ClassVar[int]
+    COMPLETED_FIELD_NUMBER: _ClassVar[int]
+    EXPIRED_FIELD_NUMBER: _ClassVar[int]
+    FAILED_FIELD_NUMBER: _ClassVar[int]
+    RETRIES_FIELD_NUMBER: _ClassVar[int]
+    queued: int
+    running: int
+    admitted: int
+    rejected: int
+    completed: int
+    expired: int
+    failed: int
+    retries: int
+    def __init__(self, queued: _Optional[int] = ..., running: _Optional[int] = ..., admitted: _Optional[int] = ..., rejected: _Optional[int] = ..., completed: _Optional[int] = ..., expired: _Optional[int] = ..., failed: _Optional[int] = ..., retries: _Optional[int] = ...) -> None: ...

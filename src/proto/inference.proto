@@ -1,4 +1,5 @@
-// inference.proto - Chapter 7 (Tensor), Chapter 8 (StageWorker service), Chapter 9 (KV-cache fields)// The messages of the distributed inference engine.
+// inference.proto - Ch 7 (Tensor), Ch 8 (StageWorker), Ch 9 (KV-cache fields), Ch 10 (Coordinator)
+// The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
 
@@ -67,4 +68,38 @@ message ReleaseRequest {
 message ReleaseReply {
   bool existed = 1;
   int64 freed_bytes = 2;
+}
+
+// ---------------- Chapter 10: the coordinator's front door ----------------
+
+service Coordinator {
+  rpc Generate (GenerateRequest) returns (GenerateReply);   // the caller's gRPC deadline = the request's deadline
+  rpc Stats (StatsRequest) returns (StatsReply);            // counters, for monitoring and Little's Law
+}
+
+message GenerateRequest {
+  string request_id = 1;
+  repeated int64 prompt_ids = 2;
+  int32 max_new_tokens = 3;
+}
+
+message GenerateReply {
+  string request_id = 1;
+  repeated int64 new_ids = 2;
+  double queue_ms = 3;     // time waiting in the admission queue
+  double service_ms = 4;   // time being generated
+  int32 retries = 5;       // worker calls that had to be retried
+}
+
+message StatsRequest {}
+
+message StatsReply {
+  int32 queued = 1;        // waiting right now
+  int32 running = 2;       // being generated right now
+  int64 admitted = 3;      // totals since start ...
+  int64 rejected = 4;      // queue was full
+  int64 completed = 5;
+  int64 expired = 6;       // deadline passed (in the queue or while running)
+  int64 failed = 7;        // a worker error that retries could not fix
+  int64 retries = 8;
 }

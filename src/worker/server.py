@@ -1,5 +1,5 @@
 """
-server.py - Chapter 8 (Chapter 9: per-request KV-cache, step ordering, Release)
+server.py - Chapter 8 (Ch 9: per-request KV-cache, step ordering, Release; Ch 10: fault injection)
 A worker process: holds one Stage and serves it over gRPC.
 Run:  python -m src.worker.server --worker-id A --port 50061 --first 0 --last 3 --embed
       python -m src.worker.server --worker-id B --port 50062 --first 3 --last 6 --head
@@ -9,6 +9,7 @@ import os
 import threading
 import time
 from concurrent import futures
+from dataclasses import dataclass
 
 import grpc
 import torch
@@ -30,12 +31,23 @@ class RequestState:
         self.lock = threading.Lock()                    # one step of a request at a time
 
 
+@dataclass(frozen=True)
+class FaultPlan:
+    """Ch 10: failures injected on purpose, to test retries and deadlines. All off by default."""
+    fail_every: int = 0      # every Nth Forward call fails with UNAVAILABLE before doing anything
+    slow_every: int = 0      # every Nth Forward call does its work, then replies late ...
+    slow_ms: int = 0         # ... by this many milliseconds
+
+
 class StageWorkerService(pb_grpc.StageWorkerServicer):
-    def __init__(self, worker_id: str, stage: Stage) -> None:
+    def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan()) -> None:
         self.worker_id = worker_id
         self.stage = stage
+        self.faults = faults
         self.requests: dict[str, RequestState] = {}
         self.requests_lock = threading.Lock()           # protects the dict itself
+        self.calls = 0                                  # Forward calls so far, for fault injection
+        self.calls_lock = threading.Lock()
 
     def Info(self, request: pb.InfoRequest, context: grpc.ServicerContext) -> pb.InfoReply:
         s = self.stage
@@ -56,6 +68,19 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
         return pb.ReleaseReply(existed=True, freed_bytes=state.cache.nbytes)
 
     def Forward(self, request: pb.ForwardRequest, context: grpc.ServicerContext) -> pb.ForwardReply:
+        with self.calls_lock:
+            self.calls += 1
+            call_no = self.calls
+        f = self.faults
+        if f.fail_every and call_no % f.fail_every == 0:
+            context.abort(grpc.StatusCode.UNAVAILABLE, f"injected failure on call {call_no}")
+        reply, fresh = self._forward(request, context)
+        if fresh and f.slow_every and call_no % f.slow_every == 0:
+            time.sleep(f.slow_ms / 1000)                    # injected: the work is done, the reply is late
+        return reply
+
+    def _forward(self, request: pb.ForwardRequest, context: grpc.ServicerContext) -> tuple[pb.ForwardReply, bool]:
+        """The Chapter 9 step logic. Returns (reply, fresh): fresh = computed now, not a stored retry answer."""
         try:
             x = tensor_from_proto(request.input)
         except ValueError as e:
@@ -71,7 +96,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
 
         with state.lock:
             if request.step_id == state.next_step - 1 and state.last_reply is not None:
-                return state.last_reply                     # a retry of the step we just did: same answer
+                return state.last_reply, False              # a retry of the step we just did: same answer
             if request.step_id != state.next_step:
                 context.abort(grpc.StatusCode.FAILED_PRECONDITION,
                               f"{request.request_id!r}: got step {request.step_id}, expected {state.next_step}")
@@ -95,7 +120,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
                 reply.output.CopyFrom(tensor_to_proto(out))
             state.next_step += 1
             state.last_reply = reply
-            return reply
+            return reply, True
 
 
 def main() -> None:
@@ -106,15 +131,20 @@ def main() -> None:
     parser.add_argument("--last", type=int, required=True)
     parser.add_argument("--embed", action="store_true", help="this stage holds the embeddings")
     parser.add_argument("--head", action="store_true", help="this stage holds the output layer")
+    parser.add_argument("--fail-every", type=int, default=0, help="Ch 10 fault injection")
+    parser.add_argument("--slow-every", type=int, default=0, help="Ch 10 fault injection")
+    parser.add_argument("--slow-ms", type=int, default=0, help="Ch 10 fault injection")
     args = parser.parse_args()
 
     stage = load_stage(args.first, args.last, args.embed, args.head)
+    faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    pb_grpc.add_StageWorkerServicer_to_server(StageWorkerService(args.worker_id, stage), server)
+    pb_grpc.add_StageWorkerServicer_to_server(StageWorkerService(args.worker_id, stage, faults), server)
     server.add_insecure_port(f"127.0.0.1:{args.port}")
     server.start()
     print(f"[worker {args.worker_id} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
-          f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}", flush=True)
+          f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}"
+          f"{f'  FAULTS {faults}' if faults != FaultPlan() else ''}", flush=True)
     server.wait_for_termination()
 
 

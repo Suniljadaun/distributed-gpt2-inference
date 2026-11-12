@@ -20,6 +20,7 @@ class WorkerSpec:
     last: int
     embed: bool = False
     head: bool = False
+    extra_args: tuple[str, ...] = ()       # Ch 10: e.g. ("--fail-every", "3") for fault injection
 
     @property
     def address(self) -> str:
@@ -28,7 +29,8 @@ class WorkerSpec:
     def command(self) -> list[str]:
         cmd = [sys.executable, "-m", "src.worker.server", "--worker-id", self.worker_id,
                "--port", str(self.port), "--first", str(self.first), "--last", str(self.last)]
-        return cmd + (["--embed"] if self.embed else []) + (["--head"] if self.head else [])
+        cmd += (["--embed"] if self.embed else []) + (["--head"] if self.head else [])
+        return cmd + list(self.extra_args)
 
 
 def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -> list[WorkerSpec]:
@@ -39,9 +41,9 @@ def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -
 
 
 @contextmanager
-def running_cluster(layout: list[WorkerSpec], ready_timeout_s: float = 60.0) -> Iterator[Pipeline]:
+def running_cluster(layout: list[WorkerSpec], ready_timeout_s: float = 60.0, **pipeline_options) -> Iterator[Pipeline]:
     procs = [subprocess.Popen(spec.command()) for spec in layout]
-    pipe = Pipeline([spec.address for spec in layout])
+    pipe = Pipeline([spec.address for spec in layout], **pipeline_options)
     try:
         pipe.wait_ready(ready_timeout_s)
         pipe.check_layout(n_layer=layout[-1].last)

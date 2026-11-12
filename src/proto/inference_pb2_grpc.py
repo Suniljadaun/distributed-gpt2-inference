@@ -190,3 +190,126 @@ class StageWorker:
             timeout,
             metadata,
             _registered_method=True)
+
+
+class CoordinatorStub:
+    """---------------- Chapter 10: the coordinator's front door ----------------
+
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Generate = channel.unary_unary(
+                '/inference.Coordinator/Generate',
+                request_serializer=src_dot_proto_dot_inference__pb2.GenerateRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.GenerateReply.FromString,
+                _registered_method=True)
+        self.Stats = channel.unary_unary(
+                '/inference.Coordinator/Stats',
+                request_serializer=src_dot_proto_dot_inference__pb2.StatsRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.StatsReply.FromString,
+                _registered_method=True)
+
+
+class CoordinatorServicer:
+    """---------------- Chapter 10: the coordinator's front door ----------------
+
+    """
+
+    def Generate(self, request, context):
+        """the caller's gRPC deadline = the request's deadline
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Stats(self, request, context):
+        """counters, for monitoring and Little's Law
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_CoordinatorServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'Generate': grpc.unary_unary_rpc_method_handler(
+                    servicer.Generate,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.GenerateRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.GenerateReply.SerializeToString,
+            ),
+            'Stats': grpc.unary_unary_rpc_method_handler(
+                    servicer.Stats,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.StatsRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.StatsReply.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'inference.Coordinator', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('inference.Coordinator', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class Coordinator:
+    """---------------- Chapter 10: the coordinator's front door ----------------
+
+    """
+
+    @staticmethod
+    def Generate(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.Coordinator/Generate',
+            src_dot_proto_dot_inference__pb2.GenerateRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.GenerateReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Stats(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.Coordinator/Stats',
+            src_dot_proto_dot_inference__pb2.StatsRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.StatsReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
