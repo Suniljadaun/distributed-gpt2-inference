@@ -24,39 +24,43 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19src/proto/inference.proto\x12\tinference\"F\n\x06Tensor\x12\r\n\x05shape\x18\x01 \x03(\x03\x12\x1f\n\x05\x64type\x18\x02 \x01(\x0e\x32\x10.inference.DType\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"j\n\x0e\x46orwardRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12 \n\x05input\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x11\n\tstart_pos\x18\x04 \x01(\x05\"\x91\x01\n\x0c\x46orwardReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12!\n\x06output\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x12\n\nnext_token\x18\x04 \x01(\x03\x12\x12\n\ncompute_ms\x18\x05 \x01(\x01\x12\x11\n\tcache_len\x18\x06 \x01(\x05\"\r\n\x0bInfoRequest\"\xb9\x01\n\tInfoReply\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x13\n\x0b\x66irst_layer\x18\x02 \x01(\x05\x12\x12\n\nlast_layer\x18\x03 \x01(\x05\x12\x11\n\thas_embed\x18\x04 \x01(\x08\x12\x10\n\x08has_head\x18\x05 \x01(\x08\x12\x0b\n\x03pid\x18\x06 \x01(\x05\x12\x13\n\x0bparam_bytes\x18\x07 \x01(\x03\x12\x17\n\x0f\x63\x61\x63hed_requests\x18\x08 \x01(\x05\x12\x10\n\x08kv_bytes\x18\t \x01(\x03\"$\n\x0eReleaseRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\"4\n\x0cReleaseReply\x12\x0f\n\x07\x65xisted\x18\x01 \x01(\x08\x12\x13\n\x0b\x66reed_bytes\x18\x02 \x01(\x03\"Q\n\x0fGenerateRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x12\n\nprompt_ids\x18\x02 \x03(\x03\x12\x16\n\x0emax_new_tokens\x18\x03 \x01(\x05\"k\n\rGenerateReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07new_ids\x18\x02 \x03(\x03\x12\x10\n\x08queue_ms\x18\x03 \x01(\x01\x12\x12\n\nservice_ms\x18\x04 \x01(\x01\x12\x0f\n\x07retries\x18\x05 \x01(\x05\"\x0e\n\x0cStatsRequest\"\x96\x01\n\nStatsReply\x12\x0e\n\x06queued\x18\x01 \x01(\x05\x12\x0f\n\x07running\x18\x02 \x01(\x05\x12\x10\n\x08\x61\x64mitted\x18\x03 \x01(\x03\x12\x10\n\x08rejected\x18\x04 \x01(\x03\x12\x11\n\tcompleted\x18\x05 \x01(\x03\x12\x0f\n\x07\x65xpired\x18\x06 \x01(\x03\x12\x0e\n\x06\x66\x61iled\x18\x07 \x01(\x03\x12\x0f\n\x07retries\x18\x08 \x01(\x03*Q\n\x05\x44Type\x12\x15\n\x11\x44TYPE_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x46LOAT32\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0c\n\x08\x42\x46LOAT16\x10\x03\x12\t\n\x05INT64\x10\x04\x32\xc1\x01\n\x0bStageWorker\x12=\n\x07\x46orward\x12\x19.inference.ForwardRequest\x1a\x17.inference.ForwardReply\x12\x34\n\x04Info\x12\x16.inference.InfoRequest\x1a\x14.inference.InfoReply\x12=\n\x07Release\x12\x19.inference.ReleaseRequest\x1a\x17.inference.ReleaseReply2\x88\x01\n\x0b\x43oordinator\x12@\n\x08Generate\x12\x1a.inference.GenerateRequest\x1a\x18.inference.GenerateReply\x12\x37\n\x05Stats\x12\x17.inference.StatsRequest\x1a\x15.inference.StatsReplyb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19src/proto/inference.proto\x12\tinference\"F\n\x06Tensor\x12\r\n\x05shape\x18\x01 \x03(\x03\x12\x1f\n\x05\x64type\x18\x02 \x01(\x0e\x32\x10.inference.DType\x12\x0c\n\x04\x64\x61ta\x18\x03 \x01(\x0c\"?\n\x13\x46orwardBatchRequest\x12(\n\x05items\x18\x01 \x03(\x0b\x32\x19.inference.ForwardRequest\"O\n\x11\x46orwardBatchReply\x12&\n\x05items\x18\x01 \x03(\x0b\x32\x17.inference.ForwardReply\x12\x12\n\ncompute_ms\x18\x02 \x01(\x01\"j\n\x0e\x46orwardRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12 \n\x05input\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x11\n\tstart_pos\x18\x04 \x01(\x05\"\x91\x01\n\x0c\x46orwardReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07step_id\x18\x02 \x01(\x05\x12!\n\x06output\x18\x03 \x01(\x0b\x32\x11.inference.Tensor\x12\x12\n\nnext_token\x18\x04 \x01(\x03\x12\x12\n\ncompute_ms\x18\x05 \x01(\x01\x12\x11\n\tcache_len\x18\x06 \x01(\x05\"\r\n\x0bInfoRequest\"\xb9\x01\n\tInfoReply\x12\x11\n\tworker_id\x18\x01 \x01(\t\x12\x13\n\x0b\x66irst_layer\x18\x02 \x01(\x05\x12\x12\n\nlast_layer\x18\x03 \x01(\x05\x12\x11\n\thas_embed\x18\x04 \x01(\x08\x12\x10\n\x08has_head\x18\x05 \x01(\x08\x12\x0b\n\x03pid\x18\x06 \x01(\x05\x12\x13\n\x0bparam_bytes\x18\x07 \x01(\x03\x12\x17\n\x0f\x63\x61\x63hed_requests\x18\x08 \x01(\x05\x12\x10\n\x08kv_bytes\x18\t \x01(\x03\"$\n\x0eReleaseRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\"4\n\x0cReleaseReply\x12\x0f\n\x07\x65xisted\x18\x01 \x01(\x08\x12\x13\n\x0b\x66reed_bytes\x18\x02 \x01(\x03\"Q\n\x0fGenerateRequest\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x12\n\nprompt_ids\x18\x02 \x03(\x03\x12\x16\n\x0emax_new_tokens\x18\x03 \x01(\x05\"k\n\rGenerateReply\x12\x12\n\nrequest_id\x18\x01 \x01(\t\x12\x0f\n\x07new_ids\x18\x02 \x03(\x03\x12\x10\n\x08queue_ms\x18\x03 \x01(\x01\x12\x12\n\nservice_ms\x18\x04 \x01(\x01\x12\x0f\n\x07retries\x18\x05 \x01(\x05\"\x0e\n\x0cStatsRequest\"\x96\x01\n\nStatsReply\x12\x0e\n\x06queued\x18\x01 \x01(\x05\x12\x0f\n\x07running\x18\x02 \x01(\x05\x12\x10\n\x08\x61\x64mitted\x18\x03 \x01(\x03\x12\x10\n\x08rejected\x18\x04 \x01(\x03\x12\x11\n\tcompleted\x18\x05 \x01(\x03\x12\x0f\n\x07\x65xpired\x18\x06 \x01(\x03\x12\x0e\n\x06\x66\x61iled\x18\x07 \x01(\x03\x12\x0f\n\x07retries\x18\x08 \x01(\x03*Q\n\x05\x44Type\x12\x15\n\x11\x44TYPE_UNSPECIFIED\x10\x00\x12\x0b\n\x07\x46LOAT32\x10\x01\x12\x0b\n\x07\x46LOAT16\x10\x02\x12\x0c\n\x08\x42\x46LOAT16\x10\x03\x12\t\n\x05INT64\x10\x04\x32\x8f\x02\n\x0bStageWorker\x12=\n\x07\x46orward\x12\x19.inference.ForwardRequest\x1a\x17.inference.ForwardReply\x12\x34\n\x04Info\x12\x16.inference.InfoRequest\x1a\x14.inference.InfoReply\x12=\n\x07Release\x12\x19.inference.ReleaseRequest\x1a\x17.inference.ReleaseReply\x12L\n\x0c\x46orwardBatch\x12\x1e.inference.ForwardBatchRequest\x1a\x1c.inference.ForwardBatchReply2\x88\x01\n\x0b\x43oordinator\x12@\n\x08Generate\x12\x1a.inference.GenerateRequest\x1a\x18.inference.GenerateReply\x12\x37\n\x05Stats\x12\x17.inference.StatsRequest\x1a\x15.inference.StatsReplyb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'src.proto.inference_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_DTYPE']._serialized_start=1024
-  _globals['_DTYPE']._serialized_end=1105
+  _globals['_DTYPE']._serialized_start=1170
+  _globals['_DTYPE']._serialized_end=1251
   _globals['_TENSOR']._serialized_start=40
   _globals['_TENSOR']._serialized_end=110
-  _globals['_FORWARDREQUEST']._serialized_start=112
-  _globals['_FORWARDREQUEST']._serialized_end=218
-  _globals['_FORWARDREPLY']._serialized_start=221
-  _globals['_FORWARDREPLY']._serialized_end=366
-  _globals['_INFOREQUEST']._serialized_start=368
-  _globals['_INFOREQUEST']._serialized_end=381
-  _globals['_INFOREPLY']._serialized_start=384
-  _globals['_INFOREPLY']._serialized_end=569
-  _globals['_RELEASEREQUEST']._serialized_start=571
-  _globals['_RELEASEREQUEST']._serialized_end=607
-  _globals['_RELEASEREPLY']._serialized_start=609
-  _globals['_RELEASEREPLY']._serialized_end=661
-  _globals['_GENERATEREQUEST']._serialized_start=663
-  _globals['_GENERATEREQUEST']._serialized_end=744
-  _globals['_GENERATEREPLY']._serialized_start=746
-  _globals['_GENERATEREPLY']._serialized_end=853
-  _globals['_STATSREQUEST']._serialized_start=855
-  _globals['_STATSREQUEST']._serialized_end=869
-  _globals['_STATSREPLY']._serialized_start=872
-  _globals['_STATSREPLY']._serialized_end=1022
-  _globals['_STAGEWORKER']._serialized_start=1108
-  _globals['_STAGEWORKER']._serialized_end=1301
-  _globals['_COORDINATOR']._serialized_start=1304
-  _globals['_COORDINATOR']._serialized_end=1440
+  _globals['_FORWARDBATCHREQUEST']._serialized_start=112
+  _globals['_FORWARDBATCHREQUEST']._serialized_end=175
+  _globals['_FORWARDBATCHREPLY']._serialized_start=177
+  _globals['_FORWARDBATCHREPLY']._serialized_end=256
+  _globals['_FORWARDREQUEST']._serialized_start=258
+  _globals['_FORWARDREQUEST']._serialized_end=364
+  _globals['_FORWARDREPLY']._serialized_start=367
+  _globals['_FORWARDREPLY']._serialized_end=512
+  _globals['_INFOREQUEST']._serialized_start=514
+  _globals['_INFOREQUEST']._serialized_end=527
+  _globals['_INFOREPLY']._serialized_start=530
+  _globals['_INFOREPLY']._serialized_end=715
+  _globals['_RELEASEREQUEST']._serialized_start=717
+  _globals['_RELEASEREQUEST']._serialized_end=753
+  _globals['_RELEASEREPLY']._serialized_start=755
+  _globals['_RELEASEREPLY']._serialized_end=807
+  _globals['_GENERATEREQUEST']._serialized_start=809
+  _globals['_GENERATEREQUEST']._serialized_end=890
+  _globals['_GENERATEREPLY']._serialized_start=892
+  _globals['_GENERATEREPLY']._serialized_end=999
+  _globals['_STATSREQUEST']._serialized_start=1001
+  _globals['_STATSREQUEST']._serialized_end=1015
+  _globals['_STATSREPLY']._serialized_start=1018
+  _globals['_STATSREPLY']._serialized_end=1168
+  _globals['_STAGEWORKER']._serialized_start=1254
+  _globals['_STAGEWORKER']._serialized_end=1525
+  _globals['_COORDINATOR']._serialized_start=1528
+  _globals['_COORDINATOR']._serialized_end=1664
 # @@protoc_insertion_point(module_scope)

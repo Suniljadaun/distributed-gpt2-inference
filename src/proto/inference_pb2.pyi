@@ -30,6 +30,20 @@ class Tensor(_message.Message):
     data: bytes
     def __init__(self, shape: _Optional[_Iterable[int]] = ..., dtype: _Optional[_Union[DType, str]] = ..., data: _Optional[bytes] = ...) -> None: ...
 
+class ForwardBatchRequest(_message.Message):
+    __slots__ = ("items",)
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    items: _containers.RepeatedCompositeFieldContainer[ForwardRequest]
+    def __init__(self, items: _Optional[_Iterable[_Union[ForwardRequest, _Mapping]]] = ...) -> None: ...
+
+class ForwardBatchReply(_message.Message):
+    __slots__ = ("items", "compute_ms")
+    ITEMS_FIELD_NUMBER: _ClassVar[int]
+    COMPUTE_MS_FIELD_NUMBER: _ClassVar[int]
+    items: _containers.RepeatedCompositeFieldContainer[ForwardReply]
+    compute_ms: float
+    def __init__(self, items: _Optional[_Iterable[_Union[ForwardReply, _Mapping]]] = ..., compute_ms: _Optional[float] = ...) -> None: ...
+
 class ForwardRequest(_message.Message):
     __slots__ = ("request_id", "step_id", "input", "start_pos")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]

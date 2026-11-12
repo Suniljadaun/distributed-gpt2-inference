@@ -1,4 +1,4 @@
-// inference.proto - Ch 7 (Tensor), Ch 8 (StageWorker), Ch 9 (KV-cache fields), Ch 10 (Coordinator)
+// inference.proto - Ch 7 (Tensor), Ch 8 (StageWorker), Ch 9 (KV-cache), Ch 10 (Coordinator), Ch 11 (ForwardBatch)
 // The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
@@ -29,6 +29,17 @@ service StageWorker {
   rpc Forward (ForwardRequest) returns (ForwardReply);   // run this worker's layers on one input
   rpc Info (InfoRequest) returns (InfoReply);            // which layers do you hold?
   rpc Release (ReleaseRequest) returns (ReleaseReply);   // Ch 9: forget a finished request's KV-cache
+  rpc ForwardBatch (ForwardBatchRequest) returns (ForwardBatchReply);   // Ch 11: one decode step, many requests
+}
+
+// Ch 11: a micro-batch. Every item is a single-token DECODE step of a different request.
+message ForwardBatchRequest {
+  repeated ForwardRequest items = 1;
+}
+
+message ForwardBatchReply {
+  repeated ForwardReply items = 1;   // same order as the request's items
+  double compute_ms = 2;             // the whole batch's layers, measured inside the worker
 }
 
 message ForwardRequest {

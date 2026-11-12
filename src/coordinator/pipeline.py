@@ -1,5 +1,5 @@
 """
-pipeline.py - Chapter 8 (Ch 9: KV-cache on the workers, Release; Ch 10: deadlines, retries with backoff)
+pipeline.py - Chapter 8 (Ch 9: KV-cache, Release; Ch 10: deadlines, retries; Ch 11: step_batch)
 The coordinator's view of the workers: send each step through the stages in order,
 and generate text token by token, exactly like src/model/generate.py but across processes.
 """
@@ -71,24 +71,28 @@ class Pipeline:
             raise RuntimeError(f"stages end at layer {expected_first}, model has {n_layer}")
         return infos
 
-    def _forward(self, stub: pb_grpc.StageWorkerStub, request: pb.ForwardRequest,
-                 deadline: float) -> tuple[pb.ForwardReply, int]:
-        """One worker call, retried on UNAVAILABLE / DEADLINE_EXCEEDED, never past `deadline`."""
+    def _call(self, method, request, deadline: float, what: str):
+        """Ch 10, generalised in Ch 11: call `method(request)`, retried on UNAVAILABLE / DEADLINE_EXCEEDED
+        with backoff, never past `deadline`. Returns (reply, retries)."""
         retries = 0
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise DeadlineExceeded(f"{request.request_id}: deadline passed at step {request.step_id}")
+                raise DeadlineExceeded(f"{what}: deadline passed")
             try:
-                return stub.Forward(request, timeout=min(self.timeout_s, remaining)), retries
+                return method(request, timeout=min(self.timeout_s, remaining)), retries
             except grpc.RpcError as e:
                 if e.code() not in RETRYABLE or retries + 1 >= self.max_attempts:
                     raise
                 delay = backoff_delay(retries, self.backoff_base_s, self.backoff_cap_s)
                 if time.monotonic() + delay >= deadline:
-                    raise DeadlineExceeded(f"{request.request_id}: no time left to retry step {request.step_id}") from e
+                    raise DeadlineExceeded(f"{what}: no time left to retry") from e
                 retries += 1
                 time.sleep(delay)
+
+    def _forward(self, stub: pb_grpc.StageWorkerStub, request: pb.ForwardRequest,
+                 deadline: float) -> tuple[pb.ForwardReply, int]:
+        return self._call(stub.Forward, request, deadline, f"{request.request_id} step {request.step_id}")
 
     def step(self, request_id: str, step_id: int, new_ids: list[int], start_pos: int,
              deadline: float = math.inf) -> tuple[int, StepTiming]:
@@ -108,6 +112,28 @@ class Pipeline:
             message = reply.output                     # hidden state passes through untouched
         timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
         return reply.next_token, timing
+
+    def step_batch(self, items: list[tuple[str, int, int, int]],
+                   deadline: float = math.inf) -> tuple[list[int], StepTiming]:
+        """Ch 11: ONE decode step for several requests. items = (request_id, step_id, last_token, start_pos).
+        One ForwardBatch call per stage carries them all. Returns each request's next token, in order."""
+        start = time.perf_counter()
+        inputs = [tensor_to_proto(torch.tensor([[tok]])) for _, _, tok, _ in items]
+        compute, retries = [], 0
+        for stub in self.stubs:
+            batch = pb.ForwardBatchRequest(items=[
+                pb.ForwardRequest(request_id=rid, step_id=sid, input=x, start_pos=pos)
+                for (rid, sid, _, pos), x in zip(items, inputs)])
+            reply, r = self._call(stub.ForwardBatch, batch, deadline, f"batch of {len(items)}")
+            retries += r
+            for (rid, sid, _, pos), rep in zip(items, reply.items):
+                if (rep.request_id, rep.step_id, rep.cache_len) != (rid, sid, pos + 1):
+                    raise RuntimeError(f"batch reply {rep.request_id}/{rep.step_id}/{rep.cache_len} "
+                                       f"does not match {rid}/{sid}/{pos + 1}")
+            compute.append(reply.compute_ms)
+            inputs = [rep.output for rep in reply.items]
+        timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
+        return [rep.next_token for rep in reply.items], timing
 
     def release(self, request_id: str) -> None:
         """Tell every worker to drop this request's KV-cache. Best effort: never raises."""

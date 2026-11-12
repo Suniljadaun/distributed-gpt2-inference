@@ -8,10 +8,9 @@ import math
 
 import torch
 from torch import nn
-from src.model.kv_cache import LayerKV
-
 
 from src.model.config import GPTConfig
+from src.model.kv_cache import LayerKV
 
 
 class Embeddings(nn.Module):
@@ -42,6 +41,8 @@ class LayerNorm(nn.Module):
         var = x.var(dim=-1, keepdim=True, unbiased=False)          # [b, s, 1]
         x_hat = (x - mean) / torch.sqrt(var + self.eps)
         return x_hat * self.weight + self.bias
+
+
 def gelu(x: torch.Tensor) -> torch.Tensor:
     """GPT-2's activation: the tanh approximation of GELU."""
     return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * x.pow(3))))
@@ -96,6 +97,18 @@ class CausalSelfAttention(nn.Module):
         out = weights @ v                                                  # [b, h, s, d_h]
         return self.c_proj(self.merge_heads(out))                          # [b, s, d]
 
+    def forward_decode_batch(self, x: torch.Tensor, kvs: list[LayerKV]) -> torch.Tensor:
+        """Ch 11: ONE new token for each of B different requests, x = [B, 1, d].
+        The projections run once for the whole batch; attention runs per request, on its own cache."""
+        q, k, v = self.c_attn(x).split(self.n_head * self.d_head, dim=-1)   # one matmul for all B
+        q, k, v = self.split_heads(q), self.split_heads(k), self.split_heads(v)   # [B, h, 1, d_h]
+        outs = []
+        for i, kv in enumerate(kvs):
+            keys, values = kv.append(k[i:i + 1], v[i:i + 1])               # this request's whole cache
+            scores = (q[i:i + 1] @ keys.transpose(-2, -1)) / math.sqrt(self.d_head)   # [1, h, 1, T]
+            outs.append(torch.softmax(scores, dim=-1) @ values)            # no mask: 1 new token sees all
+        return self.c_proj(self.merge_heads(torch.cat(outs, dim=0)))       # [B, 1, d]
+
 
 class Block(nn.Module):
     """One transformer layer: x + attn(ln_1(x)), then x + mlp(ln_2(x))."""
@@ -112,3 +125,8 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
+    def forward_decode_batch(self, x: torch.Tensor, kvs: list[LayerKV]) -> torch.Tensor:
+        """Ch 11: x = [B, 1, d], one decode token per request; kvs[i] = request i's cache for this layer."""
+        x = x + self.attn.forward_decode_batch(self.ln_1(x), kvs)
+        x = x + self.mlp(self.ln_2(x))        # LayerNorm and MLP work per token: batching is free
+        return x

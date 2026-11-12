@@ -1,5 +1,5 @@
 """
-server.py (coordinator) - Chapter 10
+server.py (coordinator) - Chapter 10 (Chapter 11: slots and continuous batching options)
 The front door: a gRPC Coordinator service. Generate() admits a request into the Scheduler's
 bounded queue (or rejects it), waits for the result, and turns the outcome into a status code.
 Run (starts 2 workers + the coordinator):  python -m src.coordinator.server --port 50060
@@ -12,7 +12,7 @@ import grpc
 
 from src.coordinator.cluster import running_cluster, two_stage_layout
 from src.coordinator.pipeline import Pipeline
-from src.coordinator.scheduler import Job, Scheduler
+from src.coordinator.scheduler import BatchingScheduler, Job, Scheduler
 from src.proto import inference_pb2 as pb
 from src.proto import inference_pb2_grpc as pb_grpc
 
@@ -52,11 +52,18 @@ class CoordinatorService(pb_grpc.CoordinatorServicer):
         return pb.StatsReply(**self.scheduler.stats())
 
 
-def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1) -> tuple[grpc.Server, Scheduler]:
-    scheduler = Scheduler(pipe, queue_size, slots)
+def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1,
+                      max_batch: int = 0) -> tuple[grpc.Server, Scheduler]:
+    """slots = requests (or, with batching, micro-batch groups) in flight; max_batch > 0 turns on Ch 11 batching."""
+    if max_batch > 0:
+        scheduler = BatchingScheduler(pipe, queue_size, max_batch=max_batch, groups=slots)
+        in_flight = slots * max_batch
+    else:
+        scheduler = Scheduler(pipe, queue_size, slots)
+        in_flight = slots
     scheduler.start()
     # enough threads for every queued + running request to wait, plus a few for Stats/rejections
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=queue_size + slots + 8))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=queue_size + in_flight + 8))
     pb_grpc.add_CoordinatorServicer_to_server(CoordinatorService(scheduler), server)
     server.add_insecure_port(f"127.0.0.1:{port}")
     server.start()
@@ -67,10 +74,13 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=50060)
     parser.add_argument("--queue-size", type=int, default=8)
+    parser.add_argument("--slots", type=int, default=1, help="Ch 11: requests / micro-batch groups in flight")
+    parser.add_argument("--max-batch", type=int, default=0, help="Ch 11: >0 turns on continuous batching")
     args = parser.parse_args()
     with running_cluster(two_stage_layout(), timeout_s=2.0) as pipe:
-        server, scheduler = start_coordinator(pipe, args.port, args.queue_size)
-        print(f"[coordinator] listening on 127.0.0.1:{args.port}, queue size {args.queue_size}", flush=True)
+        server, scheduler = start_coordinator(pipe, args.port, args.queue_size, args.slots, args.max_batch)
+        print(f"[coordinator] listening on 127.0.0.1:{args.port}, queue {args.queue_size}, "
+              f"slots {args.slots}, max batch {args.max_batch}", flush=True)
         try:
             server.wait_for_termination()
         except KeyboardInterrupt:

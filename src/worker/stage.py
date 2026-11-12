@@ -1,5 +1,5 @@
 """
-stage.py - Chapter 8
+stage.py - Chapter 8 (Ch 9: start_pos + KV-cache; Ch 11: batched decode step)
 One pipeline stage: a contiguous range of GPT-2 blocks, plus the embeddings if it is the
 first stage and the output layer if it is the last. Loads ONLY the weights it needs.
 """
@@ -9,9 +9,10 @@ from safetensors import safe_open
 from torch import nn
 
 from src.model.config import GPTConfig
+from src.model.kv_cache import KVCache
 from src.model.layers import Block, LayerNorm
 from src.model.weights import TRANSPOSED, hf_name_to_ours
-from src.model.kv_cache import KVCache
+
 
 class Stage(nn.Module):
     def __init__(self, cfg: GPTConfig, first: int, last: int, has_embed: bool, has_head: bool) -> None:
@@ -44,6 +45,21 @@ class Stage(nn.Module):
             return self.ln_f(x[:, -1:, :]) @ self.wte.weight.T      # logits of the last position only
         return x
 
+    def forward_decode_batch(self, x: torch.Tensor, start_positions: list[int], caches: list[KVCache]) -> torch.Tensor:
+        """Ch 11: one decode step for B requests at once. x = ids [B, 1] (first stage) or hidden [B, 1, d]."""
+        if self.has_embed:
+            if x.dtype != torch.int64 or x.shape != (len(caches), 1):
+                raise ValueError(f"first stage expects ids [B, 1] int64, got {tuple(x.shape)} {x.dtype}")
+            if max(start_positions) >= self.cfg.n_ctx:
+                raise ValueError(f"position {max(start_positions)} exceeds n_ctx {self.cfg.n_ctx}")
+            x = self.wte(x) + self.wpe(torch.tensor(start_positions).unsqueeze(1))   # [B,1,d] + [B,1,d]
+        elif x.dtype != torch.float32 or x.shape != (len(caches), 1, self.cfg.d_model):
+            raise ValueError(f"stage expects hidden [B, 1, {self.cfg.d_model}] float32, got {tuple(x.shape)} {x.dtype}")
+        for i in range(self.first, self.last):
+            x = self.blocks[str(i)].forward_decode_batch(x, [c.layer(i) for c in caches])
+        if self.has_head:
+            return self.ln_f(x) @ self.wte.weight.T                 # [B, 1, V]
+        return x
 
 
 def load_stage(first: int, last: int, has_embed: bool, has_head: bool, name: str = "distilgpt2") -> Stage:

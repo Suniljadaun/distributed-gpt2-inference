@@ -1,5 +1,5 @@
 """
-server.py - Chapter 8 (Ch 9: per-request KV-cache, step ordering, Release; Ch 10: fault injection)
+server.py - Chapter 8 (Ch 9: KV-cache, step ordering, Release; Ch 10: fault injection; Ch 11: ForwardBatch)
 A worker process: holds one Stage and serves it over gRPC.
 Run:  python -m src.worker.server --worker-id A --port 50061 --first 0 --last 3 --embed
       python -m src.worker.server --worker-id B --port 50062 --first 3 --last 6 --head
@@ -9,6 +9,7 @@ import os
 import threading
 import time
 from concurrent import futures
+from contextlib import ExitStack
 from dataclasses import dataclass
 
 import grpc
@@ -122,6 +123,60 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             state.last_reply = reply
             return reply, True
 
+    def ForwardBatch(self, request: pb.ForwardBatchRequest, context: grpc.ServicerContext) -> pb.ForwardBatchReply:
+        """Ch 11: one decode step (1 token) for several requests, computed as ONE batch."""
+        items = list(request.items)
+        ids = [it.request_id for it in items]
+        if len(set(ids)) != len(ids):
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "a request appears twice in one batch")
+        try:
+            xs = [tensor_from_proto(it.input) for it in items]
+        except ValueError as e:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"bad input tensor: {e}")
+        with self.requests_lock:
+            states = [self.requests.get(rid) for rid in ids]
+        missing = [rid for rid, st in zip(ids, states) if st is None]
+        if missing:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"no cache for {missing}: prefill with Forward first")
+
+        replies: list[pb.ForwardReply | None] = [None] * len(items)
+        compute_ms = 0.0
+        with ExitStack() as locks:
+            for i in sorted(range(len(items)), key=lambda i: ids[i]):   # fixed order: no deadlock
+                locks.enter_context(states[i].lock)
+            fresh = []                                                    # items to compute now
+            for i, (it, st) in enumerate(zip(items, states)):
+                if it.step_id == st.next_step - 1 and st.last_reply is not None:
+                    replies[i] = st.last_reply                            # a retry: same answer
+                elif it.step_id != st.next_step or it.start_pos != st.cache.length:
+                    context.abort(grpc.StatusCode.FAILED_PRECONDITION,
+                                  f"{it.request_id!r}: got step {it.step_id} at {it.start_pos}, "
+                                  f"expected step {st.next_step} at {st.cache.length}")
+                else:
+                    fresh.append(i)
+            if fresh:
+                start = time.perf_counter()
+                try:
+                    with torch.inference_mode():
+                        out = self.stage.forward_decode_batch(
+                            torch.cat([xs[i] for i in fresh], dim=0),
+                            [items[i].start_pos for i in fresh], [states[i].cache for i in fresh])
+                except ValueError as e:
+                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+                compute_ms = (time.perf_counter() - start) * 1000
+                for row, i in enumerate(fresh):
+                    st = states[i]
+                    reply = pb.ForwardReply(request_id=ids[i], step_id=items[i].step_id,
+                                            compute_ms=compute_ms, cache_len=st.cache.length)
+                    if self.stage.has_head:
+                        reply.next_token = int(out[row, -1].argmax())
+                    else:
+                        reply.output.CopyFrom(tensor_to_proto(out[row:row + 1]))
+                    st.next_step += 1
+                    st.last_reply = reply
+                    replies[i] = reply
+        return pb.ForwardBatchReply(items=replies, compute_ms=compute_ms)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -134,11 +189,14 @@ def main() -> None:
     parser.add_argument("--fail-every", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--slow-every", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--slow-ms", type=int, default=0, help="Ch 10 fault injection")
+    parser.add_argument("--threads", type=int, default=0, help="Ch 11: torch threads (0 = PyTorch's default)")
     args = parser.parse_args()
 
+    if args.threads:
+        torch.set_num_threads(args.threads)
     stage = load_stage(args.first, args.last, args.embed, args.head)
     faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     pb_grpc.add_StageWorkerServicer_to_server(StageWorkerService(args.worker_id, stage, faults), server)
     server.add_insecure_port(f"127.0.0.1:{args.port}")
     server.start()
