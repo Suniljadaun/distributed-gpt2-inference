@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 940 540" width="940" height="540" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1d4ed8"/>
+    </marker>
+    <marker id="grey" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+    <marker id="amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b45309"/>
+    </marker>
+  </defs>
+  <rect width="940" height="540" fill="#ffffff"/>
+
+  <!-- client -->
+  <rect x="20" y="66" width="122" height="66" rx="8" fill="#f1f5f9" stroke="#334155" stroke-width="1.5"/>
+  <text x="81" y="94" text-anchor="middle" font-size="15" font-weight="600" fill="#0f172a">Client</text>
+  <text x="81" y="114" text-anchor="middle" font-size="10.5" fill="#475569">gRPC Generate</text>
+
+  <!-- coordinator -->
+  <rect x="180" y="20" width="320" height="420" rx="10" fill="#f8fafc" stroke="#334155" stroke-width="2"/>
+  <text x="340" y="46" text-anchor="middle" font-size="16" font-weight="700" fill="#0f172a">Coordinator</text>
+
+  <g font-size="10.5" fill="#475569">
+    <rect x="200" y="66" width="280" height="54" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="214" y="87" font-size="12.5" font-weight="600" fill="#0f172a">Admission and scheduler</text>
+    <text x="214" y="106">bounded queue, slots / continuous batching, deadlines</text>
+
+    <rect x="200" y="140" width="280" height="54" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="214" y="161" font-size="12.5" font-weight="600" fill="#0f172a">Pipeline driver</text>
+    <text x="214" y="180">step ids, retries with backoff, fencing (gen, epoch)</text>
+
+    <rect x="200" y="214" width="280" height="54" rx="6" fill="#fffbeb" stroke="#d97706"/>
+    <text x="214" y="235" font-size="12.5" font-weight="600" fill="#0f172a">Token log and replay</text>
+    <text x="214" y="254">append-only, CRC32, committed before use</text>
+
+    <rect x="200" y="288" width="280" height="54" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="214" y="309" font-size="12.5" font-weight="600" fill="#0f172a">Supervisor</text>
+    <text x="214" y="328">heartbeats every 0.25 s, restart as generation + 1</text>
+
+    <rect x="200" y="362" width="280" height="54" rx="6" fill="#ffffff" stroke="#94a3b8"/>
+    <text x="214" y="383" font-size="12.5" font-weight="600" fill="#0f172a">Rebalancer</text>
+    <text x="214" y="402">stage model: fixed + blocks x per-block; moves layers</text>
+  </g>
+  <!-- inside-coordinator flow -->
+  <line x1="340" y1="120" x2="340" y2="138" stroke="#1d4ed8" stroke-width="1.6" marker-end="url(#blue)"/>
+  <line x1="340" y1="194" x2="340" y2="212" stroke="#b45309" stroke-width="1.6" marker-end="url(#amber)"/>
+
+  <!-- client <-> admission -->
+  <line x1="142" y1="86" x2="198" y2="86" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#blue)"/>
+  <line x1="198" y1="110" x2="144" y2="110" stroke="#1d4ed8" stroke-width="1.8" marker-end="url(#blue)"/>
+  <text x="170" y="77" text-anchor="middle" font-size="9.5" fill="#1d4ed8">prompt</text>
+  <text x="170" y="124" text-anchor="middle" font-size="9.5" fill="#1d4ed8">tokens</text>
+
+  <!-- log file -->
+  <g>
+    <path d="M30,222 v44 a55,9 0 0,0 110,0 v-44" fill="#fef3c7" stroke="#b45309" stroke-width="1.5"/>
+    <ellipse cx="85" cy="222" rx="55" ry="9" fill="#fde68a" stroke="#b45309" stroke-width="1.5"/>
+    <text x="85" y="252" text-anchor="middle" font-size="11" font-weight="600" fill="#78350f">token_log.jsonl</text>
+    <text x="85" y="267" text-anchor="middle" font-size="9.5" fill="#92400e">local disk</text>
+  </g>
+  <line x1="198" y1="241" x2="143" y2="241" stroke="#b45309" stroke-width="1.6" marker-end="url(#amber)"/>
+  <text x="170" y="234" text-anchor="middle" font-size="9.5" fill="#b45309">flush</text>
+
+  <!-- control path (dashed): supervisor + rebalancer to both workers -->
+  <g stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5 4" fill="none">
+    <line x1="480" y1="315" x2="600" y2="315"/>
+    <line x1="480" y1="389" x2="600" y2="389"/>
+    <line x1="600" y1="176" x2="600" y2="404"/>
+    <line x1="600" y1="176" x2="678" y2="176" marker-end="url(#grey)"/>
+    <line x1="600" y1="404" x2="678" y2="404" marker-end="url(#grey)"/>
+  </g>
+  <text x="608" y="250" font-size="10" fill="#4b5563" transform="rotate(90 608 250)">control</text>
+
+  <!-- data path (solid): driver to A and to B (star) -->
+  <g stroke="#1d4ed8" stroke-width="2" fill="none">
+    <line x1="480" y1="167" x2="640" y2="167" stroke="#ffffff" stroke-width="6"/>
+    <line x1="482" y1="167" x2="640" y2="167" marker-start="url(#blue)"/>
+    <line x1="640" y1="72" x2="640" y2="296" stroke="#ffffff" stroke-width="6"/>
+    <line x1="640" y1="72" x2="640" y2="296"/>
+    <line x1="640" y1="72" x2="678" y2="72" marker-end="url(#blue)"/>
+    <line x1="640" y1="296" x2="678" y2="296" marker-end="url(#blue)"/>
+  </g>
+  <!-- redraw the dashed vertical over the white halo where they cross -->
+  <line x1="600" y1="160" x2="600" y2="176" stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="520" y="160" font-size="10" fill="#1d4ed8">Forward RPCs</text>
+
+  <!-- worker A -->
+  <rect x="680" y="40" width="240" height="160" rx="10" fill="#f0fdf4" stroke="#15803d" stroke-width="2"/>
+  <text x="800" y="64" text-anchor="middle" font-size="15" font-weight="700" fill="#14532d">Worker A (stage 0)</text>
+  <g font-size="11" fill="#166534">
+    <text x="696" y="88">token + position embeddings</text>
+    <text x="696" y="106">blocks 0 .. k-1</text>
+    <text x="696" y="124">KV-cache per request (its layers)</text>
+    <text x="696" y="142">pinned to cores 0-1</text>
+    <text x="696" y="160" fill="#475569">generation g_A, layout epoch e</text>
+  </g>
+
+  <!-- worker B -->
+  <rect x="680" y="264" width="240" height="176" rx="10" fill="#f0fdf4" stroke="#15803d" stroke-width="2"/>
+  <text x="800" y="288" text-anchor="middle" font-size="15" font-weight="700" fill="#14532d">Worker B (stage 1)</text>
+  <g font-size="11" fill="#166534">
+    <text x="696" y="312">blocks k .. 5</text>
+    <text x="696" y="330">final LayerNorm + output layer</text>
+    <text x="696" y="348">KV-cache per request (its layers)</text>
+    <text x="696" y="366">pinned to cores 2-3</text>
+    <text x="696" y="384" fill="#475569">generation g_B, layout epoch e</text>
+  </g>
+
+  <!-- legend / life of a token -->
+  <g font-size="11" fill="#334155">
+    <line x1="20" y1="470" x2="52" y2="470" stroke="#1d4ed8" stroke-width="2" marker-end="url(#blue)"/>
+    <text x="60" y="474">data: token id to A, hidden state (3 KB/token) back, hidden to B, logits back. A and B never talk directly (star).</text>
+    <line x1="20" y1="494" x2="52" y2="494" stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#grey)"/>
+    <text x="60" y="498">control: Ping (heartbeat); PrepareLayer, ExportKV / ImportKV, CommitLayout / AbortLayout (layer moves).</text>
+    <line x1="20" y1="518" x2="52" y2="518" stroke="#b45309" stroke-width="1.6" marker-end="url(#amber)"/>
+    <text x="60" y="522">log: each new token is appended and flushed before it is used for the next step or returned.</text>
+  </g>
+</svg>

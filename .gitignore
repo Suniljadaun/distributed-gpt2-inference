@@ -17,3 +17,6 @@ PLAN.md
 
 # Ch 13 token logs (runtime data)
 logs/
+
+# report build by-product (report/build_pdf.py)
+report/Final_Report.html

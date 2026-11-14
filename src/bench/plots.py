@@ -1,0 +1,158 @@
+"""
+plots.py - Matplotlib charts for the benchmark results (PNG, for the report).
+Called by run_all after each experiment, or on its own to redraw from saved data without rerunning:
+    python -m src.bench.plots            (reads results/bench/*.json, writes results/charts/*.png)
+The dependency-free SVG writer (svg.py) still produces the .svg versions.
+"""
+import json
+import sys
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")                     # no window: files only (works in CI too)
+import matplotlib.pyplot as plt           # noqa: E402
+import numpy as np                        # noqa: E402
+
+from src.bench import stats               # noqa: E402
+
+RESULTS = Path(__file__).resolve().parents[2] / "results"
+BLUE, RED, GREEN, GREY = "#1f6fb4", "#d62728", "#2ca02c", "#7f7f7f"
+plt.rcParams.update({"figure.figsize": (7.2, 3.8), "figure.dpi": 100, "savefig.dpi": 160, "font.size": 10,
+                     "axes.spines.top": False, "axes.spines.right": False, "axes.grid": True,
+                     "grid.color": "#e5e5e5", "grid.linewidth": 0.8, "axes.axisbelow": True,
+                     "legend.frameon": False})
+
+
+def _save(fig, path: Path) -> None:
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
+def kv_cache(data: dict, out: Path) -> None:
+    fig, ax = plt.subplots()
+    for (name, ms), colour in zip(data["step_ms"].items(), (RED, BLUE)):
+        x = np.arange(1, len(ms) + 1)
+        fit = stats.growth(ms)
+        ax.plot(x, ms, color=colour, lw=1.2, label=f"{name} ({data['tokens_per_s'][name]} tok/s)")
+        ax.plot(x, fit["intercept"] + fit["slope"] * x, color=colour, lw=1, ls="--",
+                label=f"  fit: {fit['slope']:+.2f} ms per token (R² {fit['r2']:.2f})")
+    ax.set(title="Decode step time: no cache vs KV-cache (1 process)", xlabel="token number", ylabel="ms per step")
+    ax.set_ylim(bottom=0)
+    ax.legend(loc="upper left")
+    _save(fig, out / "kv_cache.png")
+
+
+def _grouped_bars(ax, labels: list[str], series: dict[str, list[float]], colours) -> None:
+    width = 0.8 / len(series)
+    x = np.arange(len(labels))
+    for k, ((name, values), colour) in enumerate(zip(series.items(), colours)):
+        bars = ax.bar(x + (k - (len(series) - 1) / 2) * width, values, width, label=name, color=colour)
+        ax.bar_label(bars, fmt="%.3g", fontsize=8, padding=2)
+    ax.set_xticks(x, labels)
+
+
+def split_sweep(data: list[dict], out: Path) -> None:
+    fig, ax = plt.subplots()
+    _grouped_bars(ax, [r["split"] for r in data], {"stage A": [r["A_ms"] for r in data],
+                                                   "stage B": [r["B_ms"] for r in data],
+                                                   "network + serialisation": [r["overhead_ms"] for r in data]},
+                  (BLUE, RED, GREY))
+    ax.set(title="Per-stage time per decode step, by split (A blocks / B blocks)", xlabel="split", ylabel="ms")
+    ax.legend(loc="upper center", ncol=3)
+    ax.set_ylim(0, max(max(r["A_ms"], r["B_ms"]) for r in data) * 1.25)
+    _save(fig, out / "split_sweep.png")
+
+
+def throughput(data: list[dict], out: Path) -> None:
+    fig, ax = plt.subplots()
+    labels = [r["config"] for r in data]
+    rates = [r["tokens_per_s"] for r in data]
+    bars = ax.bar(labels, rates, color=BLUE, width=0.6)
+    ax.bar_label(bars, labels=[f"{r:.1f}\n({r / rates[0]:.1f}×)" for r in rates], fontsize=8, padding=2)
+    ax.set(title="Throughput for a burst of 24 requests (20 tokens each)", ylabel="tokens/s")
+    ax.set_ylim(0, max(rates) * 1.25)
+    _save(fig, out / "throughput.png")
+
+
+def load(data: list[dict], out: Path) -> None:
+    fig, (ax, ax2) = plt.subplots(1, 2, figsize=(7.2, 3.6), gridspec_kw={"width_ratios": [3, 2]})
+    bounded = [r for r in data if r["queue"] == "bounded 8"]
+    rate = [r["rate"] for r in bounded]
+    ax.plot(rate, [r["p50"] for r in bounded], "o-", color=BLUE, label="p50")
+    ax.plot(rate, [r["p99"] for r in bounded], "s-", color=RED, label="p99")
+    ax.set(title="Latency, bounded queue (8)", xlabel="requests/s offered", ylabel="seconds")
+    ax.set_ylim(bottom=0)
+    ax.legend()
+    top = max(r["rate"] for r in data)
+    pair = [r for r in data if r["rate"] == top]                     # bounded vs unbounded at the highest rate
+    names = [r["queue"] for r in pair]
+    bottom = np.zeros(len(pair))
+    for key, colour in (("ok", GREEN), ("rejected", GREY), ("expired", RED)):
+        values = np.array([r[key] for r in pair], dtype=float)
+        ax2.bar(names, values, bottom=bottom, color=colour, label=key, width=0.55)
+        bottom += values
+    ax2.set(title=f"Outcomes at {top:g} req/s", ylabel="requests")
+    ax2.set_ylim(0, bottom.max() * 1.3)
+    ax2.legend(fontsize=8, loc="upper center", ncol=3, handlelength=1, columnspacing=0.8)
+    _save(fig, out / "load_latency.png")
+
+
+def wire(data: list[dict], out: Path) -> None:
+    fig, ax = plt.subplots()
+    rows = [r for r in data if r.get("json_ms") not in (None, "")]
+    formats = {"protobuf (raw bytes)": "protobuf_ms", "torch.save": "torch.save_ms", "JSON": "json_ms"}
+    _grouped_bars(ax, [r["payload"] for r in rows], {k: [r[v] for r in rows] for k, v in formats.items()},
+                  (BLUE, GREEN, RED))
+    ax.set_yscale("log")
+    ax.set(title="Encode + decode time per message (log scale)", ylabel="ms")
+    ax.legend(loc="upper left")
+    _save(fig, out / "wire.png")
+
+
+def rebalance(data: dict, out: Path) -> None:
+    static, dynamic = data["timeline"]["static"], data["timeline"]["dynamic"]
+    an = stats.rebalance_analysis(data)
+    fig, ax = plt.subplots()
+    for name, tl, colour in (("static 3/3", static, BLUE), ("dynamic (rebalancer)", dynamic, RED)):
+        ax.plot([p["t"] for p in tl], [p["tokens_per_s"] for p in tl], "o-", color=colour, ms=4, label=name)
+    if an["slow_start_t"] is not None:
+        start = an["slow_start_t"] - an["bucket_s"]
+        ax.axvspan(start, static[-1]["t"] + an["bucket_s"], color="#fde68a", alpha=0.45, lw=0)
+        ax.text(start + 0.5, 4, "worker A +8 ms per block", fontsize=8, color="#92400e")
+    for key, label in (("steady", "steady"), ("slowed", "A slowed")):
+        if key in an:
+            g = an[key]
+            print_ci = f"{label}: {g['gain'] * 100:+.0f}% (95% CI {g['ci'][0] * 100:+.0f}…{g['ci'][1] * 100:+.0f}%)"
+            ax.annotate(print_ci, xy=(0.99, 0.97 if key == "steady" else 0.89), xycoords="axes fraction",
+                        ha="right", va="top", fontsize=8.5)
+    ax.set(title="Throughput over time, 4 requests in flight (4 s buckets)", xlabel="seconds", ylabel="tokens/s")
+    ax.set_ylim(0, max(p["tokens_per_s"] for p in static + dynamic) * 1.3)
+    ax.legend(loc="lower left")
+    _save(fig, out / "rebalance.png")
+
+
+DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
+        "wire": wire, "rebalance": rebalance}
+FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
+
+
+def draw(name: str, data, out: Path) -> Path | None:
+    if name not in DRAW:
+        return None
+    DRAW[name](data, out)
+    return out / f"{FILE.get(name, name)}.png"
+
+
+def main() -> None:
+    out = RESULTS / "charts"
+    out.mkdir(parents=True, exist_ok=True)
+    for path in sorted((RESULTS / "bench").glob("*.json")):
+        written = draw(path.stem, json.loads(path.read_text(encoding="utf-8"))["data"], out)
+        if written:
+            print(f"[plots] {written}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

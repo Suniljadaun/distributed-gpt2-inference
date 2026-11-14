@@ -39,7 +39,12 @@ def test_two_stages_equal_full_model(stages) -> None:
     a, b = stages
     ids = torch.tensor([[464, 3139, 286, 4881, 318]])
     full = load_pretrained()(ids)[:, -1:, :]
-    assert torch.equal(b(a(ids)), full)
+    split = b(a(ids))
+    # Bit-identical on Windows. On Linux (CI) they differ by ~1e-5 on logits of ~70 (float32 rounding): stage B runs
+    # the output layer on the last row only, the full model on all rows, and Linux's matmul kernels round
+    # differently for different shapes. G1 is about TOKENS, so: equal to float32 rounding, same prediction.
+    torch.testing.assert_close(split, full, rtol=0, atol=1e-4)
+    assert split.argmax(-1).item() == full.argmax(-1).item()
 
 
 def test_stage_rejects_wrong_input(stages) -> None:

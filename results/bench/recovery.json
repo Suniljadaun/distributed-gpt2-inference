@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-11-14T16:01:12",
-    "git_commit": "d95638f",
+    "date": "2026-11-14T20:29:02",
+    "git_commit": "a2035fc",
     "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
     "logical_cpus": 12,
     "os": "Windows-11-10.0.26200-SP0",
@@ -10,32 +10,32 @@
     "grpc": "1.84.0"
   },
   "quick": false,
-  "seconds": 31.4,
+  "seconds": 32.6,
   "data": {
     "heartbeat_interval_s": 0.25,
-    "crash_detect_s": 0.26,
-    "crash_restart_s": 2.56,
-    "hang_detect_s": 1.59,
-    "hang_restart_s": 2.66,
+    "crash_detect_s": 0.25,
+    "crash_restart_s": 2.57,
+    "hang_detect_s": 1.57,
+    "hang_restart_s": 2.51,
     "replay": [
       {
         "tokens": 25,
-        "replay_ms": 56.5,
-        "regenerate_ms": 673.9
+        "replay_ms": 58.7,
+        "regenerate_ms": 677.0
       },
       {
         "tokens": 100,
-        "replay_ms": 92.2,
-        "regenerate_ms": 2695.8
+        "replay_ms": 95.2,
+        "regenerate_ms": 2707.8
       },
       {
         "tokens": 400,
-        "replay_ms": 307.2,
-        "regenerate_ms": 10783.2
+        "replay_ms": 311.6,
+        "regenerate_ms": 10831.3
       }
     ],
-    "request_100_tokens_s": 3.02,
-    "with_worker_crash_s": 5.82,
+    "request_100_tokens_s": 3.19,
+    "with_worker_crash_s": 5.99,
     "replays": 1,
     "identical_output": true
   }

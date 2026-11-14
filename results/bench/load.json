@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-11-14T16:01:12",
-    "git_commit": "d95638f",
+    "date": "2026-11-14T20:29:02",
+    "git_commit": "a2035fc",
     "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
     "logical_cpus": 12,
     "os": "Windows-11-10.0.26200-SP0",
@@ -10,59 +10,59 @@
     "grpc": "1.84.0"
   },
   "quick": false,
-  "seconds": 57.5,
+  "seconds": 59.6,
   "data": [
     {
       "queue": "bounded 8",
       "rate": 1.0,
-      "sent": 8,
-      "ok": 8,
+      "sent": 15,
+      "ok": 15,
       "rejected": 0,
       "expired": 0,
-      "goodput": 0.636,
-      "p50": 0.279,
-      "p99": 0.435,
-      "L_sampled": 0.189,
-      "L_little": 0.19
+      "goodput": 1.038,
+      "p50": 0.282,
+      "p99": 0.535,
+      "L_sampled": 0.336,
+      "L_little": 0.342
     },
     {
       "queue": "bounded 8",
       "rate": 3.0,
-      "sent": 37,
-      "ok": 37,
+      "sent": 32,
+      "ok": 32,
       "rejected": 0,
       "expired": 0,
-      "goodput": 2.908,
-      "p50": 0.356,
-      "p99": 0.736,
-      "L_sampled": 1.158,
-      "L_little": 1.169
+      "goodput": 2.544,
+      "p50": 0.594,
+      "p99": 1.757,
+      "L_sampled": 1.918,
+      "L_little": 1.932
     },
     {
       "queue": "bounded 8",
       "rate": 6.0,
-      "sent": 61,
-      "ok": 49,
-      "rejected": 12,
+      "sent": 70,
+      "ok": 51,
+      "rejected": 19,
       "expired": 0,
-      "goodput": 3.533,
-      "p50": 1.703,
-      "p99": 2.542,
-      "L_sampled": 5.804,
-      "L_little": 5.816
+      "goodput": 3.516,
+      "p50": 2.139,
+      "p99": 2.685,
+      "L_sampled": 6.979,
+      "L_little": 6.993
     },
     {
       "queue": "unbounded",
       "rate": 6.0,
-      "sent": 71,
-      "ok": 36,
+      "sent": 79,
+      "ok": 33,
       "rejected": 0,
-      "expired": 35,
-      "goodput": 2.438,
-      "p50": 1.79,
-      "p99": 3.014,
-      "L_sampled": 11.427,
-      "L_little": 11.476
+      "expired": 46,
+      "goodput": 2.207,
+      "p50": 2.549,
+      "p99": 3.011,
+      "L_sampled": 14.172,
+      "L_little": 14.175
     }
   ]
 }

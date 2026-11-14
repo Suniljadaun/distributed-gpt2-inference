@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-11-14T16:01:12",
-    "git_commit": "d95638f",
+    "date": "2026-11-14T20:29:02",
+    "git_commit": "a2035fc",
     "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
     "logical_cpus": 12,
     "os": "Windows-11-10.0.26200-SP0",
@@ -10,132 +10,132 @@
     "grpc": "1.84.0"
   },
   "quick": false,
-  "seconds": 110.9,
+  "seconds": 112.9,
   "data": {
     "slow_at_s": 24,
     "timeline": {
       "static": [
         {
           "t": 0,
-          "tokens_per_s": 47.8,
-          "detail": "A  9.6 B 18.7 ms  0-2 | 3-5"
+          "tokens_per_s": 46.0,
+          "detail": "A 10.1 B 19.3 ms  0-2 | 3-5"
         },
         {
           "t": 4,
-          "tokens_per_s": 48.2,
-          "detail": "A  9.5 B 18.7 ms  0-2 | 3-5"
+          "tokens_per_s": 47.2,
+          "detail": "A 10.0 B 19.1 ms  0-2 | 3-5"
         },
         {
           "t": 8,
-          "tokens_per_s": 49.0,
-          "detail": "A  9.6 B 18.7 ms  0-2 | 3-5"
+          "tokens_per_s": 49.8,
+          "detail": "A 10.0 B 19.1 ms  0-2 | 3-5"
         },
         {
           "t": 12,
-          "tokens_per_s": 50.5,
-          "detail": "A  9.6 B 18.6 ms  0-2 | 3-5"
+          "tokens_per_s": 46.8,
+          "detail": "A 10.0 B 19.2 ms  0-2 | 3-5"
         },
         {
           "t": 16,
-          "tokens_per_s": 48.5,
-          "detail": "A  9.6 B 18.6 ms  0-2 | 3-5"
+          "tokens_per_s": 47.0,
+          "detail": "A  9.9 B 19.2 ms  0-2 | 3-5"
         },
         {
           "t": 20,
           "tokens_per_s": 48.2,
-          "detail": "A  9.5 B 18.7 ms  0-2 | 3-5"
+          "detail": "A  9.9 B 19.3 ms  0-2 | 3-5"
         },
         {
           "t": 24,
-          "tokens_per_s": 51.0,
-          "detail": "A  9.5 B 18.6 ms  0-2 | 3-5"
+          "tokens_per_s": 46.0,
+          "detail": "A  9.9 B 19.4 ms  0-2 | 3-5"
         },
         {
           "t": 28,
-          "tokens_per_s": 36.0,
-          "detail": "A 10.0 B 18.4 ms  0-2 | 3-5"
+          "tokens_per_s": 37.8,
+          "detail": "A 10.7 B 19.2 ms  0-2 | 3-5"
         },
         {
           "t": 32,
-          "tokens_per_s": 27.0,
-          "detail": "A 34.8 B 17.0 ms  0-2 | 3-5"
+          "tokens_per_s": 26.8,
+          "detail": "A 35.2 B 17.0 ms  0-2 | 3-5"
         },
         {
           "t": 36,
-          "tokens_per_s": 28.5,
-          "detail": "A 35.1 B 16.9 ms  0-2 | 3-5"
+          "tokens_per_s": 26.2,
+          "detail": "A 35.2 B 17.1 ms  0-2 | 3-5"
         },
         {
           "t": 40,
-          "tokens_per_s": 27.0,
-          "detail": "A 35.0 B 17.2 ms  0-2 | 3-5"
+          "tokens_per_s": 26.8,
+          "detail": "A 35.2 B 17.1 ms  0-2 | 3-5"
         },
         {
           "t": 44,
-          "tokens_per_s": 27.0,
-          "detail": "A 35.1 B 17.3 ms  0-2 | 3-5"
+          "tokens_per_s": 26.5,
+          "detail": "A 35.2 B 17.2 ms  0-2 | 3-5"
         }
       ],
       "dynamic": [
         {
           "t": 0,
-          "tokens_per_s": 42.5,
-          "detail": "A 10.4 B 19.8 ms  0-3 | 4-5"
+          "tokens_per_s": 43.8,
+          "detail": "A 10.4 B 19.6 ms  0-3 | 4-5"
         },
         {
           "t": 4,
-          "tokens_per_s": 52.2,
-          "detail": "A 13.9 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 53.0,
+          "detail": "A 14.0 B 17.3 ms  0-3 | 4-5"
         },
         {
           "t": 8,
-          "tokens_per_s": 52.2,
-          "detail": "A 13.9 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 53.2,
+          "detail": "A 14.0 B 17.1 ms  0-3 | 4-5"
         },
         {
           "t": 12,
-          "tokens_per_s": 55.0,
-          "detail": "A 13.8 B 17.2 ms  0-3 | 4-5"
+          "tokens_per_s": 54.2,
+          "detail": "A 13.7 B 17.1 ms  0-3 | 4-5"
         },
         {
           "t": 16,
-          "tokens_per_s": 52.5,
-          "detail": "A 13.9 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 54.2,
+          "detail": "A 13.5 B 17.1 ms  0-3 | 4-5"
         },
         {
           "t": 20,
-          "tokens_per_s": 52.2,
-          "detail": "A 13.9 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 52.8,
+          "detail": "A 13.4 B 17.1 ms  0-3 | 4-5"
         },
         {
           "t": 24,
-          "tokens_per_s": 52.5,
-          "detail": "A 13.5 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 53.0,
+          "detail": "A 13.5 B 17.2 ms  0-3 | 4-5"
         },
         {
           "t": 28,
-          "tokens_per_s": 37.0,
-          "detail": "A 14.0 B 17.2 ms  0-3 | 4-5"
+          "tokens_per_s": 36.8,
+          "detail": "A 14.0 B 16.9 ms  0-3 | 4-5"
         },
         {
           "t": 32,
-          "tokens_per_s": 24.5,
-          "detail": "A 35.6 B 17.9 ms  0-2 | 3-5"
+          "tokens_per_s": 23.8,
+          "detail": "A 36.1 B 18.7 ms  0-2 | 3-5"
         },
         {
           "t": 36,
-          "tokens_per_s": 38.5,
-          "detail": "A 24.3 B 20.8 ms  0-1 | 2-5"
-        },
-        {
-          "t": 40,
-          "tokens_per_s": 37.0,
+          "tokens_per_s": 37.8,
           "detail": "A 24.4 B 20.9 ms  0-1 | 2-5"
         },
         {
+          "t": 40,
+          "tokens_per_s": 37.5,
+          "detail": "A 24.4 B 20.8 ms  0-1 | 2-5"
+        },
+        {
           "t": 44,
-          "tokens_per_s": 39.5,
-          "detail": "A 24.2 B 20.7 ms  0-1 | 2-5"
+          "tokens_per_s": 38.0,
+          "detail": "A 23.5 B 20.4 ms  0-0 | 1-5"
         }
       ]
     }

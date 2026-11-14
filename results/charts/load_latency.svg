@@ -23,8 +23,8 @@
 <text x="358.0" y="378" text-anchor="middle">6</text>
 <text x="454.0" y="378" text-anchor="middle">8</text>
 <text x="550.0" y="378" text-anchor="middle">10</text>
-<polyline points="118.0,342.7 214.0,337.9 358.0,254.4" fill="none" stroke="#1f77b4" stroke-width="2"/>
-<polyline points="118.0,333.0 214.0,314.4 358.0,202.4" fill="none" stroke="#d62728" stroke-width="2"/>
+<polyline points="118.0,342.5 214.0,323.2 358.0,227.4" fill="none" stroke="#1f77b4" stroke-width="2"/>
+<polyline points="118.0,326.8 214.0,251.1 358.0,193.5" fill="none" stroke="#d62728" stroke-width="2"/>
 <rect x="565" y="51" width="12" height="12" fill="#1f77b4"/>
 <text x="582" y="62">p50</text>
 <rect x="565" y="71" width="12" height="12" fill="#d62728"/>
