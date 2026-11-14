@@ -51,9 +51,11 @@ class StageModel:
 
 class Rebalancer:
     def __init__(self, pipe: Pipeline, n_layer: int = 6, supervisor=None, period_s: float = 1.0,
-                 window_s: float = 3.0, margin: float = 0.05, cooldown_s: float = 3.0, min_samples: int = 15) -> None:
+                 window_s: float = 3.0, margin: float = 0.05, cooldown_s: float = 3.0, min_samples: int = 15,
+                 undo_margin: float = 0.10) -> None:
         self.pipe, self.n_layer, self.supervisor = pipe, n_layer, supervisor
         self.period_s, self.window_s, self.margin = period_s, window_s, margin
+        self.undo_margin = undo_margin                             # Ch 18: higher bar for reversing the last move
         self.cooldown_s, self.min_samples = cooldown_s, min_samples
         infos = pipe.check_layout(n_layer)
         epochs = {i.epoch for i in infos}
@@ -180,9 +182,15 @@ class Rebalancer:
                 after = list(m.stage_ms)
                 after[src] = m.fixed_ms[src] + (sizes[src] - 1) * m.per_block_ms[src]
                 after[dst] = m.fixed_ms[dst] + (sizes[dst] + 1) * m.per_block_ms[dst]   # at dst's speed
-                if max(after) < m.bottleneck_ms * (1 - self.margin) and (best is None or max(after) < best[0]):
+                margin = self.undo_margin if self._undoes_last_move(src, dst) else self.margin
+                if max(after) < m.bottleneck_ms * (1 - margin) and (best is None or max(after) < best[0]):
                     best = (max(after), src, dst)
         return best
+
+    def _undoes_last_move(self, src: int, dst: int) -> bool:
+        """Ch 18: hysteresis. Two moves that each predict ~5-7% are inside the noise; without a higher bar
+        for going BACK, the demo rehearsal moved layer 4 back and forth four times in 12 s."""
+        return bool(self.moves) and (self.moves[-1].src, self.moves[-1].dst) == (dst, src)
 
     def _event(self, text: str) -> None:
         self.events.append((time.monotonic(), text))

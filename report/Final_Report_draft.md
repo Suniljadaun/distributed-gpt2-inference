@@ -40,7 +40,7 @@ stopping service.
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-86 automated tests (`python -m pytest -q`). All measurements are reproduced by `python -m src.bench.run_all`.
+88 automated tests (`python -m pytest -q`). All measurements are reproduced by `python -m src.bench.run_all`.
 
 ## 3. Architecture
 
@@ -124,6 +124,9 @@ log. The result is at-least-once delivery with idempotent processing, i.e. effec
 **Monitoring.** Every reply reports the time the worker spent in its blocks. The rebalancer fits, per stage,
 `stage_time = fixed + blocks × per_block` over a sliding window. For each possible single-layer move at the boundary it
 **predicts** the new bottleneck stage time. It moves only if the predicted drop exceeds 5%, then waits for a cooldown.
+With **hysteresis**, a move that undoes the previous one needs a 10% predicted drop. Without it, two nearly equal
+layouts (4/2 and 5/1, within ~1 ms) made the rebalancer move layer 4 back and forth four times in one demo rehearsal.
+Each move was correctly predicted, but each gain was within the noise.
 
 **Protocol.** (1) `PrepareLayer`: the receiver loads the layer's weights *while traffic continues*. (2) The layout
 gate, a readers-writer lock with writer priority, pauses new steps. (3) `ExportKV` / `ImportKV` copy the layer's
@@ -256,7 +259,7 @@ logging combined with continuous batching.
 cd D:\Assignments\Distributed_Systems\final
 .\.venv\Scripts\Activate.ps1
 $env:HF_HUB_OFFLINE=1
-python -m pytest -q                        # 86 tests
+python -m pytest -q                        # 88 tests
 python -m src.bench.run_all                # all experiments, ~7 min → results/
 python -m playground.ch18.demo             # live demo (Enter between steps; --auto for no pauses)
 ```
@@ -269,6 +272,6 @@ python -m playground.ch18.demo             # live demo (Enter between steps; --a
 | `src/worker/` | Stage (layer range, add/drop block), StageWorker gRPC server |
 | `src/coordinator/` | pipeline client, scheduler(s), coordinator server, supervisor, token log, replay, rebalancer |
 | `src/bench/` | experiments, SVG charts, `run_all` |
-| `tests/` | one test file per chapter, 86 tests |
+| `tests/` | one test file per chapter, 88 tests |
 
 *(If the course requires it, add a statement on the use of AI assistance here.)*

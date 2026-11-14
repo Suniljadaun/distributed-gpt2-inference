@@ -141,8 +141,13 @@ class Demo:
 
     def step3(self, stub, pipe, sup, reb, expected: list[int]) -> None:
         self.title("3. Crash (G5): worker B is killed while a 60-token request is running")
-        self.load_on.clear()                                        # let the queue drain so the watched
-        time.sleep(4.0)                                             # request runs at once (not queued)
+        self.load_on.clear()                                        # pause the load and let the coordinator
+        drain_until = time.monotonic() + 20                         # drain, so the watched request runs at
+        while time.monotonic() < drain_until:                       # once instead of waiting in the queue
+            s = stub.Stats(pb.StatsRequest(), timeout=5)
+            if s.queued == 0 and s.running == 0:
+                break
+            time.sleep(0.1)
         out = {}
         t = threading.Thread(target=lambda: out.setdefault("r", stub.Generate(pb.GenerateRequest(
             request_id="watched", prompt_ids=PROMPT, max_new_tokens=60), timeout=60)))
