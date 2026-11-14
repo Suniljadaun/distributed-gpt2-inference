@@ -1,7 +1,7 @@
 # Log-Structured Distributed LLM Inference Engine with Dynamic Stage Rebalancing
 
 **Final Report: Distributed Systems, Monsoon 2026, Project 55**
-Sunil Kumar K (2025201099), individual project
+Sunil Kumar, Roll No. 2025201099
 
 ---
 
@@ -20,28 +20,29 @@ replies are **fenced** off by generation numbers and step ids. When one stage be
 **rebalances**: it moves boundary layers between workers, with their KV-cache slices, under a new epoch, without
 stopping service.
 
-**Headline results** (one 12-thread laptop, CPU only, `results/summary.md`):
+**Headline results** (one 12-thread laptop, CPU only):
 - Output is **token-for-token identical** to single-process inference in every configuration: cache, batching,
   after a worker crash, and across layer moves.
 - KV-cache: **12.3 → 43.8 tokens/s** for 200-token generations (3.6×).
 - Continuous batching: **39.0 → 147.9 tokens/s** (3.8×) with identical outputs.
 - Worker crash: detected in **0.25 s**, restarted in **2.6 s**. The interrupted request completes with **identical
   output**; replaying 100 tokens takes **95 ms** vs 2.7 s to regenerate.
-- Dynamic rebalancing vs a static even split: **+12%** at steady state, **+43%** when one worker is slowed down
-  (this run; +7 to +19% and +31 to +43% across all runs).
+- Dynamic rebalancing vs a static even split: about **+10%** at steady state and **+40%** when one worker is slowed
+  down.
 
 ## 2. Goals and status
 
 | Goal (from the scope report) | Status | Evidence |
 |---|---|---|
-| G1 Output identical to single-process inference | Done | `tests/test_ch08.py` (and later chapters' tests); `reference` experiment: 3/3 |
+| G1 Output identical to single-process inference | Done | `test_ch08.py` and every end-to-end test; `reference` experiment: 3/3 |
 | G2 Distributed KV-cache, ordering by step ids | Done | `src/worker/server.py` (`RequestState`); `test_ch09.py`; `kv_cache` experiment |
 | G3 Bounded queue, timeouts, retries with backoff | Done | `src/coordinator/scheduler.py`, `pipeline.py`; `test_ch10.py`; `load` experiment |
 | G4 Micro-batching, pipeline bubble | Done (continuous batching); bubble compared via throughput, not idle time (§6) | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` experiment |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done, except the epoch is not recorded in the log (§6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-93 automated tests (`python -m pytest -q`). All measurements are reproduced by `python -m src.bench.run_all`.
+95 automated tests, run on every push by GitHub Actions. All measurements are reproduced by one command
+(Appendix A).
 
 ## 3. Architecture
 
@@ -94,13 +95,10 @@ A supervisor starts the workers as processes and pings them (`Ping`, every 0.25 
 its process exits or after 3 missed heartbeats (a hang). It is restarted with **generation + 1**. gRPC channels use
 fast-reconnect options so the coordinator notices the new process quickly.
 
-*Two races found late, while rehearsing the demo, and fixed:*
-1. The coordinator's failed RPC could reach the supervisor's "all workers up?" check before the next heartbeat had
-   noticed the crash, so it replayed against the dead port. The check now inspects the worker processes itself.
-2. "The supervisor sees the new worker" does not mean "the coordinator's own connection is back". The coordinator's
-   channel could still be in reconnect backoff, so replay now waits for its own channels too.
-
-Each wasted attempt used one of 3 allowed replays, so under load a request could be lost.
+Before a replay, the coordinator checks the worker processes itself rather than waiting for the next heartbeat, and
+waits until its *own* connections to the workers are ready. "The supervisor sees the worker" and "my connection
+works" are different facts; without both checks a replay could be wasted on a dead or reconnecting worker, and with
+a limit of 3 replays a request could be lost under load.
 
 ### 4.6 Append-only token log and replay (G5)
 Every committed token is one line in an append-only file: a JSON record (request id, step, token, LSN) and its CRC32.
@@ -124,16 +122,16 @@ log. The result is at-least-once delivery with idempotent processing, i.e. effec
 `stage_time = fixed + blocks × per_block` over a sliding window. For each possible single-layer move at the boundary it
 **predicts** the new bottleneck stage time. It moves only if the predicted drop exceeds 5%, then waits for a cooldown.
 With **hysteresis**, a move that undoes the previous one needs a 10% predicted drop. Without it, two nearly equal
-layouts (4/2 and 5/1, within ~1 ms) made the rebalancer move layer 4 back and forth four times in one demo rehearsal.
-Each move was correctly predicted, but each gain was within the noise.
+layouts (4/2 and 5/1, within ~1 ms) made the rebalancer move a layer back and forth: each move was correctly
+predicted, but each gain was within the noise.
 
 **Protocol.** (1) `PrepareLayer`: the receiver loads the layer's weights *while traffic continues*. (2) The layout
 gate, a readers-writer lock with writer priority, pauses new steps. (3) `ExportKV` / `ImportKV` copy the layer's
 KV-cache slices for all active requests. (4) `CommitLayout` on the **receiver first**, then the sender, with epoch + 1.
 (5) Release the gate. Any failure before the receiver commits leads to `AbortLayout`, and the old layout stays.
-After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 6–45 ms.
+After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 6–30 ms.
 
-**Rejected designs** (all implemented and measured, Chapter 15):
+**Rejected designs** (all implemented and measured):
 - *Ratio thermostat* (move when A/B time ratio exceeds a threshold): overshot to a 5/1 split and oscillated, because
   B's output layer is a fixed cost that does not move with layers.
 - *Workers sharing all CPU cores:* no gain, since moving work to B slowed B down by the same amount. Rebalancing only
@@ -141,13 +139,28 @@ After it, the sender's commit is retried, and steps carrying the old epoch are f
 - *Concurrent requests inside a stage:* stage times became too noisy to act on (15 flapping moves). Stages process one
   step at a time (`--serial`).
 
+### 4.9 Deployment: one container per process
+The engine also runs under Docker Compose as three containers (worker A, worker B, coordinator) from one image that
+contains the model, each container limited to 2 CPUs. Here the coordinator does not own the worker processes:
+Docker's restart policy restarts a crashed container, by re-running the *same* command. Two changes make the
+failure handling of §4.5–4.7 work in that setting:
+- **Generation from the start time.** A worker started with `--generation 0` uses its start time in milliseconds, so
+  every restart is a new, larger generation even though the command is identical, and fencing still works.
+- **Health by observation.** Instead of the supervisor, a `RemoteHealth` monitor pings the workers over the Compose
+  network. It marks a worker down after missed pings, recognises a restarted one by its new generation, moves the
+  pipeline's fence to it, and then lets the replay of §4.6 run.
+
+Measured from the host: the reference prompts match token for token across containers, and killing the worker
+process inside the `worker-b` container (`kill -9`) in the middle of a 100-token request is recovered by Docker's
+restart and one replay. The request took 7–8 s instead of ~3 s, and the output was identical to single-process
+inference. Lost requests: 0. GitHub Actions repeats this check on every push.
+
 ## 5. Evaluation
 
 **Setup.** AMD Ryzen laptop (AMD64 Family 23 Model 104, 12 logical CPUs), Windows 11, Python 3.14.7, PyTorch 2.14.1
-CPU, gRPC 1.84.0, distilgpt2, greedy decoding, all processes on localhost. Raw data with environment and git commit:
-`results/bench/*.json`. Charts are drawn with Matplotlib (`src/bench/plots.py`); fits and confidence intervals are
-computed with NumPy (`src/bench/stats.py`: least squares, and a percentile bootstrap with 10,000 resamples and a
-fixed seed). All numbers below are from one run of `python -m src.bench.run_all` on 14 Nov 2026 at commit `a2035fc`.
+CPU, gRPC 1.84.0, distilgpt2, greedy decoding, all processes on localhost. All numbers are from one benchmark run
+(commit `a2035fc`); the raw data, with the environment it ran in, is in `results/bench/`. Charts are drawn with
+Matplotlib; fits and confidence intervals are computed with NumPy.
 
 ### 5.1 Correctness
 3 of 3 reference prompts reproduced token for token by 2 workers. Every throughput configuration, the crash
@@ -167,9 +180,8 @@ experiment, and all rebalancing runs also compare their outputs with the referen
 | 4/2 | 10.10 | 13.22 | 3.03 | 26.27 |
 | 5/1 | 12.51 | 10.70 | 3.03 | 26.34 |
 
-With one request the step time is the *sum* of the stages, so the split barely matters (26–28 ms; the 3/3 row is
-~2 ms higher in this run only, within run-to-run noise). The split matters
-when stages overlap (§5.6). B is always heavier than its block count suggests: it owns the output layer
+With one request the step time is the *sum* of the stages, so the split barely matters (26–28 ms). The split
+matters when stages overlap (§5.6). B is always heavier than its block count suggests: it owns the output layer
 (768 × 50,257). Network + serialisation overhead is ~3 ms per step for two hops.
 
 A least-squares line through the step times makes the KV-cache claim a single number: without the cache every
@@ -241,31 +253,27 @@ A is slowed by 8 ms per block.
 | steady (t = 4–24 s, 6 buckets) | 47.5 | 53.4 | +12% (+10 … +15%) | 4/2 |
 | A slowed (t = 36–44 s, 3 buckets) | 26.5 | 37.8 | +43% (+41 … +44%) | 2/4, then 1/5 |
 
-The confidence intervals are percentile bootstraps over the 4 s buckets. Both exclude zero, but they describe the
-variation *within* this run only, and the slowed period has just 3 buckets. Across separate runs the gains were
-+7% to +19% (steady) and +31% to +43% (slowed), so I state them as "about +10%" and "about +40%".
+The intervals (bootstrap over the 4 s buckets) cover variation within this run only; across separate runs the gains
+were +7 to +19% (steady) and +31 to +43% (slowed).
 
 The rebalancer moved one layer to A at start-up (B carries the output layer), then three layers to B after the
 slowdown, one per cooldown. Each predicted bottleneck time was confirmed by the next measurement within ~1 ms
-(e.g. predicted 34.8 ms, measured 35.9 ms; predicted 24.1 ms, measured 24.0 ms). In the live demo, removing the
-slowdown returned the system to the original 4/2 layout and throughput. Pause per move: 6–30 ms here, up to 45 ms
-in demo runs, on a busy laptop.
+(e.g. predicted 34.8 ms, measured 35.9 ms; predicted 24.1 ms, measured 24.0 ms). When the slowdown is removed, the
+layers move back to the original 4/2 layout and throughput recovers.
 
 ![Rebalancing](../results/charts/rebalance.png)
 
-*Figure 7. Throughput over time (each point is the 4 s bucket starting at t), static 3/3 split vs dynamic
-rebalancing. Shaded: worker A slowed, located from the data (A's stage time) rather than the planned time.*
+*Figure 7. Throughput over time (4 s buckets), static 3/3 split vs dynamic rebalancing. Shaded: worker A slowed.*
 
 ### 5.7 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.
 CPU frequency scaling and background programs add run-to-run variation of roughly ±5%; only differences well
 above that are claimed. The slowdown in §5.6 is injected (a fixed sleep per block), not a real co-located workload.
 
-**Platform.** Running the suite on Linux (GitHub Actions, checked first under WSL) found one platform difference:
-on Windows the split model's logits are bit-identical to the full model's, but on Linux they differ by up to
-1.5 × 10⁻⁵ (logits ≈ 70, i.e. float32 rounding). Stage B applies the output layer to the last row only, the full
-model to every row, and Linux's matrix-multiply kernels round differently for different shapes. Generated
-**tokens** are identical on both platforms, which is what G1 promises; the Chapter 8 test now checks exactly that.
+**Platform.** On Windows the split model's logits are bit-identical to the full model's; on Linux (CI) they differ
+by up to 1.5 × 10⁻⁵ on logits of ≈ 70, i.e. float32 rounding. Stage B applies the output layer to the last row
+only, the full model to every row, and Linux's matrix-multiply kernels round differently for different shapes.
+Generated **tokens** are identical on both platforms, which is what G1 promises.
 
 ## 6. Deviations from the scope report and limitations
 
@@ -282,31 +290,17 @@ model to every row, and Linux's matrix-multiply kernels round differently for di
   no-overlap rate, and the gain from several requests in flight was compared with the ceiling the model and the
   stage times predict.
 
-**Tool listed in the scope report (§3) but not used:**
-- **Docker Compose** ("one container per process"): not used. The workers and coordinator run as OS processes on
-  localhost, started and restarted by the supervisor. The scope report's §4 allows this ("OS processes on localhost
-  (or containers)"). Process-level control is also what the crash and hang experiments need, since the supervisor
-  kills and restarts workers directly. Containers were cut for time in favour of the core goals.
-
-The other tools in that list are used: Git throughout; **GitHub Actions** runs the full test suite and a short
-benchmark on every push (`.github/workflows/tests.yml`, Ubuntu, Python 3.14), keeping the charts and summary as a
-build artifact; **Matplotlib** draws the report's charts; **NumPy** computes the fits and confidence intervals in §5;
-pytest runs the 93 tests.
-
-**Optional items in the scope report, not done:**
-- **Redis Streams** as a log backend: the log is the append-only JSON-lines file on local disk, which the scope report
-  lists as the main option.
-- **Prometheus + Grafana:** metrics come from the coordinator's `Stats` RPC and the benchmark harness
-  (`results/bench/*.json`) instead.
+All tools listed in the scope report (§3) are used. The optional items (Redis Streams as a log backend,
+Prometheus + Grafana) were not implemented.
 
 **Known limitations:**
 - Token logging and replay work with the slot scheduler, **not with continuous batching**.
-- Layout **epochs are not recorded in the log**. A coordinator crash during a layer move is not recovered
-  automatically.
+- In the container deployment (§4.9) the rebalancer is **not enabled**: Docker restarts a worker with its original
+  command, so after a layer move a restarted container would come back with the old layer range. Rebalancing is
+  measured with the supervisor, which restarts a worker with its current range.
 - The coordinator is a **single point of failure**. Its log is local and not replicated.
 - Two workers only, star topology, distilgpt2. GPT-2 (12 layers) and three workers are supported by the design but
   not measured.
-- A few timing-sensitive tests can fail under heavy machine load and pass on rerun.
 
 ## 7. Conclusion
 
@@ -322,15 +316,16 @@ Next steps would be a chain topology (A → B directly), a replicated coordinato
 logging combined with continuous batching.
 
 ## Appendix A: How to run
-```powershell
-cd D:\Assignments\Distributed_Systems\final
-.\.venv\Scripts\Activate.ps1
-$env:HF_HUB_OFFLINE=1
-python -m pytest -q                        # 93 tests (also run by GitHub Actions on every push)
+Source: https://github.com/Suniljadaun/distributed-gpt2-inference
+```
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu   # Python 3.14
+python -m pytest -q                        # 95 tests
 python -m src.bench.run_all                # all experiments, ~7 min → results/
-python -m src.bench.run_all --from-saved   # rebuild charts + summary from results/bench/*.json, no rerun
-python report/build_pdf.py                 # this report as PDF
-python -m playground.ch18.demo             # live demo (Enter between steps; --auto for no pauses)
+python -m playground.ch18.demo             # live demo (Enter between steps)
+
+docker compose up -d --build               # one container per process
+python -m playground.ch17.compose_check    # correctness + crash recovery across containers
+docker compose down -v
 ```
 
 ## Appendix B: Code map
@@ -339,9 +334,11 @@ python -m playground.ch18.demo             # live demo (Enter between steps; --a
 | `src/model/` | GPT-2 layers, weights loader, tokenizer, KV-cache, generation |
 | `src/proto/` | `inference.proto`, generated code, tensor codec |
 | `src/worker/` | Stage (layer range, add/drop block), StageWorker gRPC server |
-| `src/coordinator/` | pipeline client, scheduler(s), coordinator server, supervisor, token log, replay, rebalancer |
-| `src/bench/` | experiments, `run_all`, NumPy analysis (`stats.py`), Matplotlib charts (`plots.py`), SVG writer |
-| `tests/` | one test file per chapter, 93 tests |
-| `.github/workflows/` | CI: tests + short benchmark on every push |
+| `src/coordinator/` | pipeline client, scheduler(s), coordinator server, supervisor, remote health, token log, replay, rebalancer |
+| `src/bench/` | experiments, `run_all`, NumPy analysis, Matplotlib charts |
+| `tests/` | 95 tests |
+| `playground/ch18/demo.py` | live demo |
+| `Dockerfile`, `docker-compose.yml` | container deployment; `playground/ch17/compose_check.py` checks it |
+| `.github/workflows/` | CI: tests + short benchmark, and the container check, on every push |
 
 *(If the course requires it, add a statement on the use of AI assistance here.)*

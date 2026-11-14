@@ -1,0 +1,15 @@
+.venv/
+.git/
+.github/
+.pytest_cache/
+**/__pycache__/
+book/
+report/
+logs/
+results/bench/
+results/charts/
+results/summary.md
+playground/
+tests/
+*.csv
+*.pdf

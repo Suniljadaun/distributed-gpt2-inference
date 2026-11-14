@@ -346,7 +346,10 @@ def main() -> None:
     parser.add_argument("--slow-every", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--slow-ms", type=int, default=0, help="Ch 10 fault injection")
     parser.add_argument("--threads", type=int, default=0, help="Ch 11: torch threads (0 = PyTorch's default)")
-    parser.add_argument("--generation", type=int, default=1, help="Ch 12: incarnation number, set by the supervisor")
+    parser.add_argument("--generation", type=int, default=1,
+                        help="Ch 12: incarnation number, set by the supervisor. Ch 17: 0 = auto, the start time in "
+                             "ms (for containers restarted by Docker, which reruns the same command)")
+    parser.add_argument("--host", default="127.0.0.1", help="Ch 17: address to listen on (0.0.0.0 in a container)")
     parser.add_argument("--hang-after-s", type=float, default=0, help="Ch 12 fault injection")
     parser.add_argument("--epoch", type=int, default=1, help="Ch 15: layout epoch, set by the supervisor on restart")
     parser.add_argument("--block-delay-ms", type=float, default=0, help="Ch 15 fault: every block takes this much longer")
@@ -355,6 +358,8 @@ def main() -> None:
     parser.add_argument("--cpus", default="", help="Ch 15: pin to these cores, e.g. 0,1,2 (a 'machine' of its own)")
     parser.add_argument("--serial", action="store_true", help="Ch 15: compute one step at a time (a pipeline stage)")
     args = parser.parse_args()
+    if args.generation == 0:                    # Ch 17: every (re)start gets a new, larger generation
+        args.generation = time.time_ns() // 1_000_000
 
     if args.cpus:
         pin_to_cpus([int(c) for c in args.cpus.split(",")])
@@ -369,7 +374,7 @@ def main() -> None:
     if args.serial:
         service.compute_lock = threading.Lock()
     pb_grpc.add_StageWorkerServicer_to_server(service, server)
-    server.add_insecure_port(f"127.0.0.1:{args.port}")
+    server.add_insecure_port(f"{args.host}:{args.port}")
     server.start()
     print(f"[worker {args.worker_id} gen {args.generation} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
           f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}"

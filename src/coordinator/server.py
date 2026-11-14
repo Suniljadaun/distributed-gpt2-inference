@@ -78,8 +78,8 @@ class CoordinatorService(pb_grpc.CoordinatorServicer):
         return pb.StatsReply(**self.scheduler.stats())
 
 
-def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1,
-                      max_batch: int = 0, health=None, log: TokenLog | None = None) -> tuple[grpc.Server, Scheduler]:
+def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1, max_batch: int = 0,
+                      health=None, log: TokenLog | None = None, host: str = "127.0.0.1") -> tuple[grpc.Server, Scheduler]:
     """slots = requests (or, with batching, micro-batch groups) in flight; max_batch > 0 turns on Ch 11 batching.
     health = a Ch 12 Supervisor: new work waits while a worker is being restarted.
     log = a Ch 13 TokenLog: tokens are committed to it and requests are replayed after worker failures."""
@@ -95,7 +95,7 @@ def start_coordinator(pipe: Pipeline, port: int, queue_size: int, slots: int = 1
     # enough threads for every queued + running request to wait, plus a few for Stats/rejections
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=queue_size + in_flight + 8))
     pb_grpc.add_CoordinatorServicer_to_server(CoordinatorService(scheduler), server)
-    server.add_insecure_port(f"127.0.0.1:{port}")
+    server.add_insecure_port(f"{host}:{port}")
     server.start()
     return server, scheduler
 
@@ -107,14 +107,23 @@ def main() -> None:
     parser.add_argument("--slots", type=int, default=1, help="Ch 11: requests / micro-batch groups in flight")
     parser.add_argument("--max-batch", type=int, default=0, help="Ch 11: >0 turns on continuous batching")
     parser.add_argument("--log", default="", help="Ch 13: token log file, e.g. logs/token_log.jsonl")
+    parser.add_argument("--host", default="127.0.0.1", help="Ch 17: address to listen on (0.0.0.0 in a container)")
+    parser.add_argument("--workers", default="",
+                        help="Ch 17: connect to running workers, e.g. worker-a:50051,worker-b:50052 (in stage order), "
+                             "instead of starting them; restarts are then someone else's job (e.g. Docker)")
     args = parser.parse_args()
     log = TokenLog(args.log) if args.log else None
     if log is not None and log.incomplete():
         print(f"[coordinator] log has {len(log.incomplete())} unfinished requests (resumable)", flush=True)
-    with supervised_cluster(two_stage_layout()) as (pipe, supervisor):
+    if args.workers:
+        from src.coordinator.remote import remote_cluster
+        cluster = remote_cluster(args.workers.split(","))
+    else:
+        cluster = supervised_cluster(two_stage_layout())
+    with cluster as (pipe, health):
         server, scheduler = start_coordinator(pipe, args.port, args.queue_size, args.slots, args.max_batch,
-                                              health=supervisor, log=log)
-        print(f"[coordinator] listening on 127.0.0.1:{args.port}, queue {args.queue_size}, "
+                                              health=health, log=log, host=args.host)
+        print(f"[coordinator] listening on {args.host}:{args.port}, queue {args.queue_size}, "
               f"slots {args.slots}, max batch {args.max_batch}, log {args.log or 'off'}", flush=True)
         try:
             server.wait_for_termination()

@@ -1,0 +1,47 @@
+# The engine with one container per process (scope report §3).
+#   docker compose up -d --build        build the image and start worker A, worker B, coordinator
+#   python -m playground.ch17.compose_check    correctness + crash test from the host (port 50060)
+#   docker compose down                 stop and remove the containers
+#
+# Restarts: Docker's restart policy plays the Supervisor. A restarted worker reruns the same command, so it
+# uses --generation 0 (= its start time): every restart is a new, larger generation, and the coordinator's
+# RemoteHealth (src/coordinator/remote.py) sees it, moves the fence and replays the token log.
+# init: true puts a small init process at PID 1, so killing the worker process ends the container (a crash)
+# and the restart policy starts a new one.
+
+x-worker: &worker
+  build: .
+  image: dist-gpt2-inference:latest
+  init: true
+  restart: unless-stopped
+  cpus: 2                       # each worker gets its own 2 CPUs, like a machine of its own
+
+services:
+  worker-a:
+    <<: *worker
+    command: >-
+      python -m src.worker.server --worker-id A --host 0.0.0.0 --port 50051
+      --first 0 --last 3 --embed --generation 0 --threads 2
+
+  worker-b:
+    <<: *worker
+    command: >-
+      python -m src.worker.server --worker-id B --host 0.0.0.0 --port 50052
+      --first 3 --last 6 --head --generation 0 --threads 2
+
+  coordinator:
+    image: dist-gpt2-inference:latest
+    init: true
+    restart: unless-stopped
+    cpus: 2
+    depends_on: [worker-a, worker-b]
+    command: >-
+      python -m src.coordinator.server --host 0.0.0.0 --port 50060
+      --workers worker-a:50051,worker-b:50052 --slots 4 --queue-size 8 --log /data/token_log.jsonl
+    ports:
+      - "50060:50060"
+    volumes:
+      - token-log:/data          # the token log survives a coordinator container restart
+
+volumes:
+  token-log:
