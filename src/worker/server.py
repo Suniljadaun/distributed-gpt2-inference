@@ -13,6 +13,7 @@ import zlib
 from concurrent import futures
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
+from pathlib import Path
 
 import grpc
 import torch
@@ -350,6 +351,7 @@ def main() -> None:
     parser.add_argument("--epoch", type=int, default=1, help="Ch 15: layout epoch, set by the supervisor on restart")
     parser.add_argument("--block-delay-ms", type=float, default=0, help="Ch 15 fault: every block takes this much longer")
     parser.add_argument("--block-delay-after-s", type=float, default=0, help="Ch 15 fault: ... starting after this long")
+    parser.add_argument("--block-delay-file", default="", help="Ch 18: ... and only while this file exists")
     parser.add_argument("--cpus", default="", help="Ch 15: pin to these cores, e.g. 0,1,2 (a 'machine' of its own)")
     parser.add_argument("--serial", action="store_true", help="Ch 15: compute one step at a time (a pipeline stage)")
     args = parser.parse_args()
@@ -360,6 +362,7 @@ def main() -> None:
         torch.set_num_threads(args.threads)
     stage = load_stage(args.first, args.last, args.embed, args.head)
     stage.block_delay_ms, stage.slow_from = args.block_delay_ms, time.monotonic() + args.block_delay_after_s
+    stage.delay_file = Path(args.block_delay_file) if args.block_delay_file else None
     faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms, args.hang_after_s)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8), options=BIG_MESSAGES)
     service = StageWorkerService(args.worker_id, stage, faults, args.generation, args.epoch)

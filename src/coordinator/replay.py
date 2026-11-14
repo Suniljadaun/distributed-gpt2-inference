@@ -44,6 +44,10 @@ def generate_logged(pipe: Pipeline, log: TokenLog, request_id: str, prompt_ids: 
                 raise
             if health is not None and not health.wait_all_up(deadline - time.monotonic()):
                 raise DeadlineExceeded(f"{request_id}: workers not back before the deadline") from e
+            try:                    # Ch 18 fix: the supervisor's channel sees the new worker first; OUR channel
+                pipe.wait_ready(min(5.0, max(0.0, deadline - time.monotonic())))   # may still be in reconnect
+            except RuntimeError:    # backoff and would fail fast, burning a replay. Not ready in time: try anyway.
+                pass
             result.replays += 1
         finally:
             pipe.release(wid)

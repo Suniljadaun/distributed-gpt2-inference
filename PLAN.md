@@ -90,5 +90,21 @@ final/
 ```
 
 ## Where we are
-- Done: plan, textbook outline, Chapter 0 written, scope report.
-- **Next: you do Chapter 0** (`book/ch00_setup.md`) and send me the output of `python src\check_env.py`. Then I write Chapter 1.
+- Done: plan, textbook outline, scope report, Chapters 0–16 and 18 written. ALL scope goals G1–G6 implemented and measured. Ch 17 (extras) skipped; declared in the report's deviations.
+- Your side: Ch 0–16 done and committed. Ch 10–18 code applied by Claude at your request.
+- **Next: you** rehearse `python -m playground.ch18.demo --auto`, commit Ch 18, finish `report/Final_Report_draft.md` (rerun `run_all` on the final commit, update §5, add figure + AI-use statement if required, convert to PDF), rehearse the demo with the talking script (book 18.5) and the interview bank (18.9).
+- Ch 18: `--block-delay-file` (slowdown only while a file exists) → `playground/ch18/demo.py` (G1–G6 in 5 steps). Rehearsal: 55 → 22.5 tok/s when A slowed, 43 after 3 moves, back to 4/2 and 55 when the slowdown ended; crash mid-request: replays 1, identical. **Two real bugs found by the rehearsal and fixed:** (1) `Supervisor.wait_all_up` said "all up" in the ~0.25 s before the next heartbeat noticed a crash → replays retried at the dead port; (2) after the restart the coordinator's channel was still in reconnect backoff → `replay.py` now waits `pipe.wait_ready()`. Both burned replays (max 3) and could fail a request under load. Suite: 86 tests.
+- Ch 16: bench writes results/bench/*.json (with env + commit), results/charts/*.svg (no matplotlib: SVG writer, avoids Smart App Control), results/summary.md. Quick-run headline: G1 3/3; cache 20.8→45.8 tok/s; batching 141.6 tok/s (3.7×); Little within 1%; crash detect 0.26 s + restart 2.6 s; rebalance +16%/+43%. Suite: 83 tests (1 of 3 full runs had 2 timing flakes).
+- Ch 15 numbers (serial workers, A cores 0-1, B 2-3, coordinator 4-5, 4 in flight): static 3/3 46.1 → dynamic 4/2 49.4 tok/s (+7%); A +8 ms/block: static 26.4 vs dynamic 2/4 34.6 tok/s (+31%); predictions within ~1 ms; move pause 8–14 ms; 0 changed tokens. Failed designs: ratio thermostat (overshoot to 5/1), shared CPU (no gain), concurrent stages (15 flapping moves). Suite: 79 tests.
+- Ch 14 numbers: fingerprint 1.9 µs/step (3 KB), fencing cost within noise; 5 duplicate requests → 1 computation (1.36 s vs 6.86 s). Suite: 73 tests.
+- Ch 13 numbers: commit 10.7 µs/token (flush) vs 0.89 ms (fsync), 66 B/token; replay 12–33× faster than regenerating; worker crash in a 100-token request: 3.43 → 6.19 s, identical output, 0 mismatches. Suite: 67 tests.
+- Ch 12 numbers: crash detect ≤ 1 interval (0.1/0.25/0.5 s), hang detect ≈ 3×(T+τ) (0.65/1.58/3.07 s), restart ≈ 2.5 s; no false positives even at 2 ms ping timeout (ping RTT ≈ 0.7 ms). Suite: 61 tests.
+- Ch 11 numbers (3 threads/worker): 1-at-a-time 34 tok/s → 2 slots 1.42× → batch 24 3.48× → 2 groups × batch 12 3.63× (124.6 tok/s); all outputs = reference; --threads 3 +34% at high load; head matmul batch 4 ≈ 4× batch 1 (kernel quirk).
+- Ch 10 numbers: 10-token request ≈ 0.29 s → capacity ≈ 3.4 req/s (1 slot); Little's Law within 1% (L 0.29…13.2); at λ=6: bounded Q=8 → 57 ok / 36 rejected / 0 expired, unbounded → 36 ok / 53 expired. Port 50127 is taken by VS Code on this laptop.
+- Tooling: Windows Smart App Control blocks grpc_tools protoc → regenerate with `wsl -d Ubuntu -- bash -lc "cd /mnt/d/Assignments/Distributed_Systems/final && ~/protoc-venv/bin/python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto"`.
+- Ch 9 numbers: cached step flat ≈ 23 ms (12.3 → 43.5 tok/s over 200 tokens); distributed 49 → 27 ms/step (A 8 + B 16 + overhead 3.0); overhead is per call (no-compute Forward ≈ 0.8 ms); KV 36,864 B/token; best split moved 4/2 → 5/1 (1.17×); cached logits differ ≤ 8e-5, tokens identical.
+- Ch 8 baseline (no cache, star, split 3): step ≈ 49 ms = A 19 + B 27 + overhead 3.4; block ≈ 6 ms, head ≈ 8.5 ms; best static split 4/2 (1.21×). Workers 242.6 + 239.5 MB (wte duplicated).
+- Ch 7 facts: 1-token message 3,083 B, codec 0.027 ms; protobuf path ≈ 1.7 ms/MB (5 copies), torch.save faster above ~1 MB; split at layer 3 across the wire is bit-identical.
+- Ch 6 facts for later: gRPC unary p50 ≈ 440 µs (6× raw socket); default max message 4 MB (matters for Ch 15 KV migration); reconnect to dead server fails after ≈ 2 s.
+- Ch 5 facts for later: localhost RTT p50 ≈ 70 µs; refused connect takes ≈ 2 s on Windows (matters for Ch 12 restarts).
+- Baseline numbers for Ch 9 (no KV-cache): decode step 24 ms at seq 1 → 120 ms at seq 204; 12 tokens/s over 200 tokens.

@@ -6,6 +6,7 @@ Ch 15: the range can change while running (add_block / drop_block), and a slowdo
 """
 import threading
 import time
+from pathlib import Path
 
 import torch
 from huggingface_hub import hf_hub_download
@@ -34,6 +35,7 @@ class Stage(nn.Module):
             self.ln_f = LayerNorm(cfg.d_model, cfg.ln_eps)
         self.block_delay_ms = 0.0       # Ch 15 fault: every block takes this much longer ...
         self.slow_from = 0.0            # ... from this time.monotonic() on (a slower machine)
+        self.delay_file: Path | None = None   # Ch 18: ... and only while this file exists (a live switch)
         self._timing = threading.local()   # Ch 15: per-thread time spent in blocks during the last forward
 
     @property
@@ -45,7 +47,8 @@ class Stage(nn.Module):
         """Run block i via fn(); with the injected fault, then wait a fixed extra delay."""
         start = time.perf_counter()
         out = fn(self.blocks[str(i)])
-        if self.block_delay_ms and time.monotonic() >= self.slow_from:
+        if (self.block_delay_ms and time.monotonic() >= self.slow_from
+                and (self.delay_file is None or self.delay_file.exists())):
             time.sleep(self.block_delay_ms / 1000)
         self._timing.blocks_ms += (time.perf_counter() - start) * 1000
         return out

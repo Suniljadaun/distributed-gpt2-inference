@@ -69,8 +69,19 @@ class Supervisor:
             c.close()
 
     def wait_all_up(self, timeout_s: float) -> bool:
-        """Block until every worker is UP (True) or timeout_s passes (False). timeout_s may be math.inf."""
+        """Block until every worker is UP (True) or timeout_s passes (False). timeout_s may be math.inf.
+        Ch 18 fix: a caller whose RPC just failed may get here BEFORE the monitor's next sweep has seen the
+        crash; all_up would still be set and it would retry at once against the dead port (and burn a replay).
+        So first look at the processes ourselves: an exited one is marked DOWN now; the monitor restarts it."""
+        self._notice_exits()
         return self.all_up.wait(None if math.isinf(timeout_s) else max(0.0, timeout_s))
+
+    def _notice_exits(self) -> None:
+        with self.lock:
+            for w in self.workers:
+                if w.up and w.proc is not None and w.proc.poll() is not None:
+                    w.up = False
+                    self.all_up.clear()
 
     def update_spec(self, index: int, **changes) -> None:
         """Ch 15: the layout changed; a restart of this worker must use the new range and epoch."""
