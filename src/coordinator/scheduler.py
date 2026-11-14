@@ -83,6 +83,13 @@ class Scheduler:
         On False, the job has already been finished as expired."""
         if time.monotonic() < job.deadline and (
                 self.health is None or self.health.wait_all_up(job.deadline - time.monotonic())):
+            if self.health is not None:
+                # Ch 18 fix, as in replay.py: "the supervisor sees the worker" is not "OUR channel is connected".
+                # After a restart our channel may still be in reconnect backoff and fail fast, losing the job.
+                try:
+                    self.pipe.wait_ready(min(5.0, max(0.0, job.deadline - time.monotonic())))
+                except RuntimeError:
+                    pass                                # not ready in time: try anyway, the retries may still work
             return True
         job.error = (grpc.StatusCode.DEADLINE_EXCEEDED, "deadline passed while queued")
         self._finish(job, "expired")
