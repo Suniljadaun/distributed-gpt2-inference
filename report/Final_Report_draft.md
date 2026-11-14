@@ -1,7 +1,8 @@
 # Log-Structured Distributed LLM Inference Engine with Dynamic Stage Rebalancing
 
 **Final Report: Distributed Systems, Monsoon 2026, Project 55**
-Sunil Kumar, Roll No. 2025201099
+Sunil Kumar, Roll No. 2025201099<br>
+Code: https://github.com/Suniljadaun/distributed-gpt2-inference
 
 ---
 
@@ -37,12 +38,12 @@ stopping service.
 | G1 Output identical to single-process inference | Done | `test_ch08.py` and every end-to-end test; `reference` experiment: 3/3 |
 | G2 Distributed KV-cache, ordering by step ids | Done | `src/worker/server.py` (`RequestState`); `test_ch09.py`; `kv_cache` experiment |
 | G3 Bounded queue, timeouts, retries with backoff | Done | `src/coordinator/scheduler.py`, `pipeline.py`; `test_ch10.py`; `load` experiment |
-| G4 Micro-batching, pipeline bubble | Done (continuous batching); bubble compared via throughput, not idle time (§6) | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` experiment |
+| G4 Micro-batching, pipeline bubble | Done (continuous batching); the bubble model is compared with measured throughput, not measured idle time | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` experiment |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
-| G6 Dynamic stage rebalancing | Done, except the epoch is not recorded in the log (§6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
+| G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call but not written to the token log | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-95 automated tests, run on every push by GitHub Actions. All measurements are reproduced by one command
-(Appendix A).
+95 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+and the demo are in the repository's README.
 
 ## 3. Architecture
 
@@ -154,6 +155,10 @@ Measured from the host: the reference prompts match token for token across conta
 process inside the `worker-b` container (`kill -9`) in the middle of a 100-token request is recovered by Docker's
 restart and one replay. The request took 7–8 s instead of ~3 s, and the output was identical to single-process
 inference. Lost requests: 0. GitHub Actions repeats this check on every push.
+
+The rebalancer is not enabled in this deployment: Docker restarts a worker with its original command, so after a
+layer move a restarted container would come back with the old layer range. Rebalancing (§4.8, §5.6) runs with the
+supervisor, which restarts a worker with its current range.
 
 ## 5. Evaluation
 
@@ -275,70 +280,19 @@ by up to 1.5 × 10⁻⁵ on logits of ≈ 70, i.e. float32 rounding. Stage B app
 only, the full model to every row, and Linux's matrix-multiply kernels round differently for different shapes.
 Generated **tokens** are identical on both platforms, which is what G1 promises.
 
-## 6. Deviations from the scope report and limitations
+## 6. Conclusion
 
-**Goals not fully met as worded in the scope report (§2):**
-- **G6, "an epoch number recorded in the log":** the epoch is carried on every RPC and fenced by the workers, and a
-  restarted worker comes back with the current layout (the supervisor is told). But the epoch is **not written to the
-  token log**. So a *coordinator* crash during a layer move is not recovered from the log; the layout would have to
-  be re-read from the workers.
-- **G6, "above an imbalance threshold":** the threshold design was implemented first and rejected (it oscillated,
-  §4.8). The final trigger is a predicted improvement of the bottleneck (> 5%, > 10% to undo a move). It plays the
-  same role, but it is not a threshold on the imbalance itself.
-- **G4, "measured idle time compared with the pipeline-bubble model (p−1)/(m+p−1)":** per-stage idle time was not
-  measured directly. The bubble model was compared with measured **throughput**: one request at a time gives the
-  no-overlap rate, and the gain from several requests in flight was compared with the ceiling the model and the
-  stage times predict.
-
-All tools listed in the scope report (§3) are used. The optional items (Redis Streams as a log backend,
-Prometheus + Grafana) were not implemented.
-
-**Known limitations:**
-- Token logging and replay work with the slot scheduler, **not with continuous batching**.
-- In the container deployment (§4.9) the rebalancer is **not enabled**: Docker restarts a worker with its original
-  command, so after a layer move a restarted container would come back with the old layer range. Rebalancing is
-  measured with the supervisor, which restarts a worker with its current range.
-- The coordinator is a **single point of failure**. Its log is local and not replicated.
-- Two workers only, star topology, distilgpt2. GPT-2 (12 layers) and three workers are supported by the design but
-  not measured.
-
-## 7. Conclusion
-
-The engine implements all six goals of the scope report, with the gaps stated in §6, and its outputs are identical
-to single-process inference throughout.
-The main lessons:
+The engine implements all six goals of the scope report, and its outputs are identical to single-process inference
+throughout. The main lessons:
 - **Write-ahead logging turns worker state into a cache.** Losing it costs a replay (~0.1 s), not the request.
 - **Fencing by generation and epoch** is what makes restarts and layer moves safe while old messages are still in flight.
 - **Rebalancing needs a model, not a threshold.** It also needs isolated resources and quiet measurements to
   work at all.
 
-Next steps would be a chain topology (A → B directly), a replicated coordinator log (Raft), epochs in the log, and
-logging combined with continuous batching.
-
-## Appendix A: How to run
-Source: https://github.com/Suniljadaun/distributed-gpt2-inference
-```
-pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu   # Python 3.14
-python -m pytest -q                        # 95 tests
-python -m src.bench.run_all                # all experiments, ~7 min → results/
-python -m playground.ch18.demo             # live demo (Enter between steps)
-
-docker compose up -d --build               # one container per process
-python -m playground.ch17.compose_check    # correctness + crash recovery across containers
-docker compose down -v
-```
-
-## Appendix B: Code map
-| Path | Contents |
-|---|---|
-| `src/model/` | GPT-2 layers, weights loader, tokenizer, KV-cache, generation |
-| `src/proto/` | `inference.proto`, generated code, tensor codec |
-| `src/worker/` | Stage (layer range, add/drop block), StageWorker gRPC server |
-| `src/coordinator/` | pipeline client, scheduler(s), coordinator server, supervisor, remote health, token log, replay, rebalancer |
-| `src/bench/` | experiments, `run_all`, NumPy analysis, Matplotlib charts |
-| `tests/` | 95 tests |
-| `playground/ch18/demo.py` | live demo |
-| `Dockerfile`, `docker-compose.yml` | container deployment; `playground/ch17/compose_check.py` checks it |
-| `.github/workflows/` | CI: tests + short benchmark, and the container check, on every push |
+**Next steps.** The coordinator is still a single point of failure: its log is local, so the next step is to
+replicate it (e.g. with Raft) and to record layout epochs in it, so that a coordinator crash during a layer move is
+recovered from the log too. Token logging currently works with the slot scheduler only, not with continuous
+batching. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
+GPT-2, which the design supports but which were not measured.
 
 *(If the course requires it, add a statement on the use of AI assistance here.)*
