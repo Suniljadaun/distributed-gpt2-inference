@@ -1,0 +1,18 @@
+{
+  "environment": {
+    "date": "2026-11-14T16:01:12",
+    "git_commit": "d95638f",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 4.8,
+  "data": {
+    "prompts": 3,
+    "matching": 3
+  }
+}

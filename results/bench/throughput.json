@@ -1,0 +1,46 @@
+{
+  "environment": {
+    "date": "2026-11-14T16:01:12",
+    "git_commit": "d95638f",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 35.1,
+  "data": [
+    {
+      "config": "1 at a time",
+      "tokens_per_s": 39.3,
+      "mean_latency_s": 6.36,
+      "all_match_reference": true
+    },
+    {
+      "config": "4 slots",
+      "tokens_per_s": 67.7,
+      "mean_latency_s": 4.26,
+      "all_match_reference": true
+    },
+    {
+      "config": "batch 8",
+      "tokens_per_s": 81.7,
+      "mean_latency_s": 3.91,
+      "all_match_reference": true
+    },
+    {
+      "config": "batch 24",
+      "tokens_per_s": 138.2,
+      "mean_latency_s": 3.44,
+      "all_match_reference": true
+    },
+    {
+      "config": "2 x batch 12",
+      "tokens_per_s": 145.5,
+      "mean_latency_s": 3.25,
+      "all_match_reference": true
+    }
+  ]
+}

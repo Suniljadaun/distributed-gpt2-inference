@@ -1,0 +1,75 @@
+{
+  "environment": {
+    "date": "2026-11-14T16:01:12",
+    "git_commit": "d95638f",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 2.3,
+  "data": [
+    {
+      "payload": "hidden, 1 token",
+      "raw_bytes": 3072,
+      "protobuf_bytes": 3083,
+      "protobuf_ms": 0.029,
+      "protobuf_exact": true,
+      "torch.save_bytes": 4649,
+      "torch.save_ms": 0.416,
+      "torch.save_exact": true,
+      "json_bytes": 15863,
+      "json_ms": 0.808,
+      "json_exact": true
+    },
+    {
+      "payload": "hidden, 20-token prompt",
+      "raw_bytes": 61440,
+      "protobuf_bytes": 61452,
+      "protobuf_ms": 0.112,
+      "protobuf_exact": true,
+      "torch.save_bytes": 63017,
+      "torch.save_ms": 0.479,
+      "torch.save_exact": true,
+      "json_bytes": 317218,
+      "json_ms": 15.154,
+      "json_exact": true
+    },
+    {
+      "payload": "hidden, 512-token prompt",
+      "raw_bytes": 1572864,
+      "protobuf_bytes": 1572877,
+      "protobuf_ms": 3.247,
+      "protobuf_exact": true,
+      "torch.save_bytes": 1574441,
+      "torch.save_ms": 2.241,
+      "torch.save_exact": true,
+      "json_bytes": 8112766,
+      "json_ms": 409.813,
+      "json_exact": true
+    },
+    {
+      "payload": "KV, 1 layer, 512 tokens",
+      "raw_bytes": 3145728,
+      "protobuf_bytes": 3145743,
+      "protobuf_ms": 5.322,
+      "protobuf_exact": true,
+      "torch.save_bytes": 3147305,
+      "torch.save_ms": 3.589,
+      "torch.save_exact": true
+    },
+    {
+      "payload": "KV, 6 layers, 512 tokens",
+      "raw_bytes": 18874368,
+      "protobuf_bytes": 18874384,
+      "protobuf_ms": 29.326,
+      "protobuf_exact": true,
+      "torch.save_bytes": 18876009,
+      "torch.save_ms": 23.828,
+      "torch.save_exact": true
+    }
+  ]
+}

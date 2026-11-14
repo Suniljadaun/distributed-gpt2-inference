@@ -1,0 +1,68 @@
+{
+  "environment": {
+    "date": "2026-11-14T16:01:12",
+    "git_commit": "d95638f",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 57.5,
+  "data": [
+    {
+      "queue": "bounded 8",
+      "rate": 1.0,
+      "sent": 8,
+      "ok": 8,
+      "rejected": 0,
+      "expired": 0,
+      "goodput": 0.636,
+      "p50": 0.279,
+      "p99": 0.435,
+      "L_sampled": 0.189,
+      "L_little": 0.19
+    },
+    {
+      "queue": "bounded 8",
+      "rate": 3.0,
+      "sent": 37,
+      "ok": 37,
+      "rejected": 0,
+      "expired": 0,
+      "goodput": 2.908,
+      "p50": 0.356,
+      "p99": 0.736,
+      "L_sampled": 1.158,
+      "L_little": 1.169
+    },
+    {
+      "queue": "bounded 8",
+      "rate": 6.0,
+      "sent": 61,
+      "ok": 49,
+      "rejected": 12,
+      "expired": 0,
+      "goodput": 3.533,
+      "p50": 1.703,
+      "p99": 2.542,
+      "L_sampled": 5.804,
+      "L_little": 5.816
+    },
+    {
+      "queue": "unbounded",
+      "rate": 6.0,
+      "sent": 71,
+      "ok": 36,
+      "rejected": 0,
+      "expired": 35,
+      "goodput": 2.438,
+      "p50": 1.79,
+      "p99": 3.014,
+      "L_sampled": 11.427,
+      "L_little": 11.476
+    }
+  ]
+}

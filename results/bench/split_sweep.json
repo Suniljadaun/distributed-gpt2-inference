@@ -1,0 +1,51 @@
+{
+  "environment": {
+    "date": "2026-11-14T16:01:12",
+    "git_commit": "d95638f",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 16.8,
+  "data": [
+    {
+      "split": "1/5",
+      "A_ms": 2.75,
+      "B_ms": 20.45,
+      "overhead_ms": 2.96,
+      "total_ms": 26.26
+    },
+    {
+      "split": "2/4",
+      "A_ms": 5.17,
+      "B_ms": 18.27,
+      "overhead_ms": 3.04,
+      "total_ms": 26.45
+    },
+    {
+      "split": "3/3",
+      "A_ms": 7.54,
+      "B_ms": 15.64,
+      "overhead_ms": 2.98,
+      "total_ms": 26.26
+    },
+    {
+      "split": "4/2",
+      "A_ms": 10.39,
+      "B_ms": 13.47,
+      "overhead_ms": 3.05,
+      "total_ms": 27.06
+    },
+    {
+      "split": "5/1",
+      "A_ms": 12.48,
+      "B_ms": 10.73,
+      "overhead_ms": 3.09,
+      "total_ms": 26.42
+    }
+  ]
+}
