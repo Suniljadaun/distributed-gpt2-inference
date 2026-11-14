@@ -1,5 +1,5 @@
 """
-server.py - Chapter 8 (Ch 9 KV-cache; Ch 10 faults; Ch 11 ForwardBatch; Ch 12 Ping, generation; Ch 14 fencing)
+server.py - Chapter 8 (Ch 9 KV-cache; Ch 10 faults; Ch 11 ForwardBatch; Ch 12 Ping; Ch 14 fencing; Ch 15 layer moves)
 A worker process: holds one Stage and serves it over gRPC.
 Run:  python -m src.worker.server --worker-id A --port 50061 --first 0 --last 3 --embed
       python -m src.worker.server --worker-id B --port 50062 --first 3 --last 6 --head
@@ -11,7 +11,7 @@ import threading
 import time
 import zlib
 from concurrent import futures
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 
 import grpc
@@ -21,7 +21,24 @@ from src.model.kv_cache import KVCache
 from src.proto import inference_pb2 as pb
 from src.proto import inference_pb2_grpc as pb_grpc
 from src.proto.tensor_codec import tensor_from_proto, tensor_to_proto
-from src.worker.stage import Stage, load_stage
+from src.model.layers import Block
+from src.worker.stage import Stage, load_block, load_stage
+
+# Ch 15: exporting a layer's KV-cache for many requests can exceed gRPC's 4 MB default (Ch 6)
+BIG_MESSAGES = [("grpc.max_send_message_length", 256 << 20), ("grpc.max_receive_message_length", 256 << 20)]
+
+
+def pin_to_cpus(cpus: list[int]) -> None:
+    """Ch 15: run this process only on the given CPU cores, as if it had a machine of its own."""
+    if hasattr(os, "sched_setaffinity"):                       # Linux
+        os.sched_setaffinity(0, cpus)
+        return
+    import ctypes                                              # Windows
+    kernel32 = ctypes.windll.kernel32
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    mask = sum(1 << c for c in cpus)
+    if not kernel32.SetProcessAffinityMask(ctypes.c_void_p(kernel32.GetCurrentProcess()), ctypes.c_size_t(mask)):
+        raise OSError(f"could not pin to CPUs {cpus}")
 
 
 class RequestState:
@@ -50,11 +67,16 @@ class FaultPlan:
 
 
 class StageWorkerService(pb_grpc.StageWorkerServicer):
-    def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan(), generation: int = 1) -> None:
+    def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan(), generation: int = 1,
+                 epoch: int = 1) -> None:
         self.worker_id = worker_id
         self.stage = stage
         self.faults = faults
         self.generation = generation                    # Ch 12: which incarnation of this worker we are
+        self.epoch = epoch                              # Ch 15: which layout we are serving
+        self.compute_lock = nullcontext()               # Ch 15: threading.Lock() = one step at a time (--serial)
+        self.pending: tuple[int, int, Block] | None = None          # Ch 15: (epoch, layer, block) being received
+        self.pending_kv: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
         self.started = time.monotonic()
         self.hang_at = self.started + faults.hang_after_s if faults.hang_after_s else math.inf
         self.requests: dict[str, RequestState] = {}
@@ -68,6 +90,86 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             context.abort(grpc.StatusCode.FAILED_PRECONDITION,
                           f"fenced: {request.request_id!r} addressed generation {request.expect_generation}, "
                           f"this is generation {self.generation}")
+        if request.expect_epoch and request.expect_epoch != self.epoch:                 # Ch 15
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION,
+                          f"fenced: {request.request_id!r} assumed layout epoch {request.expect_epoch}, "
+                          f"this worker is at epoch {self.epoch}")
+
+    # ---------------- Ch 15: moving a layer, in two phases ----------------
+
+    def PrepareLayer(self, request: pb.PrepareLayerRequest, context: grpc.ServicerContext) -> pb.PrepareLayerReply:
+        """Phase 1 (no pause needed): load the weights of the layer we are about to receive."""
+        self._maybe_hang()
+        s, i = self.stage, request.layer
+        if not ((i == s.last and not s.has_head) or (i == s.first - 1 and not s.has_embed)):
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT,
+                          f"layer {i} is not adjacent to {s.first}..{s.last - 1} on a movable side")
+        if request.epoch != self.epoch + 1:
+            context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"prepare for epoch {request.epoch}, I am at {self.epoch}")
+        start = time.perf_counter()
+        block = load_block(i)
+        with self.requests_lock:
+            self.pending, self.pending_kv = (request.epoch, i, block), {}
+        return pb.PrepareLayerReply(load_ms=(time.perf_counter() - start) * 1000)
+
+    def ExportKV(self, request: pb.ExportKVRequest, context: grpc.ServicerContext) -> pb.ExportKVReply:
+        """Every in-flight request's K and V for one layer (the coordinator has paused all steps)."""
+        self._maybe_hang()
+        with self.requests_lock:
+            items = list(self.requests.items())
+        slices = []
+        for rid, state in items:
+            with state.lock:
+                kv = state.cache.layers.get(request.layer)
+                if kv is not None and kv.k is not None:
+                    slices.append(pb.KVSlice(request_id=rid, k=tensor_to_proto(kv.k), v=tensor_to_proto(kv.v)))
+        return pb.ExportKVReply(slices=slices)
+
+    def ImportKV(self, request: pb.ImportKVRequest, context: grpc.ServicerContext) -> pb.ImportKVReply:
+        self._maybe_hang()
+        with self.requests_lock:
+            if self.pending is None or self.pending[:2] != (request.epoch, request.layer):
+                context.abort(grpc.StatusCode.FAILED_PRECONDITION, "ImportKV without a matching PrepareLayer")
+            for sl in request.slices:
+                self.pending_kv[sl.request_id] = (tensor_from_proto(sl.k), tensor_from_proto(sl.v))
+        return pb.ImportKVReply(imported=len(request.slices))
+
+    def CommitLayout(self, request: pb.CommitLayoutRequest, context: grpc.ServicerContext) -> pb.CommitLayoutReply:
+        """Phase 2: switch to the new range. The receiver adds the prepared layer, the sender drops it."""
+        self._maybe_hang()
+        s = self.stage
+        new_range, old_range = (request.first_layer, request.last_layer), (s.first, s.last)
+        with self.requests_lock:
+            if request.epoch != self.epoch + 1:
+                context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"commit for epoch {request.epoch}, I am at {self.epoch}")
+            try:
+                if new_range == old_range:
+                    pass                                                   # this worker is not involved
+                elif self.pending is not None and self.pending[0] == request.epoch:     # receiving a layer
+                    _, layer, block = self.pending
+                    s.add_block(layer, block)
+                    for rid, state in self.requests.items():
+                        if rid in self.pending_kv:
+                            k, v = self.pending_kv[rid]
+                            kv = state.cache.layer(layer)
+                            kv.k, kv.v = k, v
+                else:                                                      # giving a layer away
+                    layer = s.last - 1 if new_range[1] == s.last - 1 else s.first
+                    s.drop_block(layer)
+                    for state in self.requests.values():
+                        state.cache.layers.pop(layer, None)
+            except ValueError as e:
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+            if (s.first, s.last) != new_range:
+                context.abort(grpc.StatusCode.INTERNAL, f"layout is {s.first}..{s.last}, expected {new_range}")
+            self.epoch = request.epoch
+            self.pending, self.pending_kv = None, {}
+        return pb.CommitLayoutReply(epoch=self.epoch, first_layer=s.first, last_layer=s.last)
+
+    def AbortLayout(self, request: pb.AbortLayoutRequest, context: grpc.ServicerContext) -> pb.AbortLayoutReply:
+        with self.requests_lock:
+            self.pending, self.pending_kv = None, {}
+        return pb.AbortLayoutReply()
 
     def _maybe_hang(self) -> None:
         """Ch 12 fault: once hang_at has passed, every call blocks forever, like a deadlocked process."""
@@ -91,7 +193,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             has_embed=s.has_embed, has_head=s.has_head, pid=os.getpid(),
             param_bytes=sum(p.numel() * p.element_size() for p in s.parameters()),
             cached_requests=len(states), kv_bytes=sum(st.cache.nbytes for st in states),
-            generation=self.generation,
+            generation=self.generation, epoch=self.epoch,
         )
 
     def Release(self, request: pb.ReleaseRequest, context: grpc.ServicerContext) -> pb.ReleaseReply:
@@ -145,17 +247,18 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
                 context.abort(grpc.StatusCode.FAILED_PRECONDITION,
                               f"{request.request_id!r}: start_pos {request.start_pos} but cache holds {state.cache.length}")
 
-            start = time.perf_counter()
-            try:
-                with torch.inference_mode():
-                    out = self.stage(x, request.start_pos, state.cache)
-            except ValueError as e:                         # wrong shape/dtype for this stage
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
-            compute_ms = (time.perf_counter() - start) * 1000
+            with self.compute_lock:                         # Ch 15: with --serial, wait for our turn first
+                start = time.perf_counter()
+                try:
+                    with torch.inference_mode():
+                        out = self.stage(x, request.start_pos, state.cache)
+                except ValueError as e:                     # wrong shape/dtype for this stage
+                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+                compute_ms = (time.perf_counter() - start) * 1000
 
             reply = pb.ForwardReply(request_id=request.request_id, step_id=request.step_id,
                                     compute_ms=compute_ms, cache_len=state.cache.length,
-                                    generation=self.generation)
+                                    generation=self.generation, blocks_ms=self.stage.last_blocks_ms)
             if self.stage.has_head:
                 reply.next_token = int(out[0, -1].argmax())  # greedy decoding happens here
             else:
@@ -185,7 +288,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"no cache for {missing}: prefill with Forward first")
 
         replies: list[pb.ForwardReply | None] = [None] * len(items)
-        compute_ms = 0.0
+        compute_ms = blocks_ms = 0.0
         with ExitStack() as locks:
             for i in sorted(range(len(items)), key=lambda i: ids[i]):   # fixed order: no deadlock
                 locks.enter_context(states[i].lock)
@@ -203,15 +306,17 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
                 else:
                     fresh.append(i)
             if fresh:
-                start = time.perf_counter()
-                try:
-                    with torch.inference_mode():
-                        out = self.stage.forward_decode_batch(
-                            torch.cat([xs[i] for i in fresh], dim=0),
-                            [items[i].start_pos for i in fresh], [states[i].cache for i in fresh])
-                except ValueError as e:
-                    context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
-                compute_ms = (time.perf_counter() - start) * 1000
+                with self.compute_lock:
+                    start = time.perf_counter()
+                    try:
+                        with torch.inference_mode():
+                            out = self.stage.forward_decode_batch(
+                                torch.cat([xs[i] for i in fresh], dim=0),
+                                [items[i].start_pos for i in fresh], [states[i].cache for i in fresh])
+                    except ValueError as e:
+                        context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
+                    compute_ms = (time.perf_counter() - start) * 1000
+                    blocks_ms = self.stage.last_blocks_ms
                 for row, i in enumerate(fresh):
                     st = states[i]
                     reply = pb.ForwardReply(request_id=ids[i], step_id=items[i].step_id,
@@ -225,7 +330,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
                     st.last_reply = reply
                     st.last_digest = step_digest(items[i])
                     replies[i] = reply
-        return pb.ForwardBatchReply(items=replies, compute_ms=compute_ms)
+        return pb.ForwardBatchReply(items=replies, compute_ms=compute_ms, blocks_ms=blocks_ms)
 
 
 def main() -> None:
@@ -242,20 +347,32 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=0, help="Ch 11: torch threads (0 = PyTorch's default)")
     parser.add_argument("--generation", type=int, default=1, help="Ch 12: incarnation number, set by the supervisor")
     parser.add_argument("--hang-after-s", type=float, default=0, help="Ch 12 fault injection")
+    parser.add_argument("--epoch", type=int, default=1, help="Ch 15: layout epoch, set by the supervisor on restart")
+    parser.add_argument("--block-delay-ms", type=float, default=0, help="Ch 15 fault: every block takes this much longer")
+    parser.add_argument("--block-delay-after-s", type=float, default=0, help="Ch 15 fault: ... starting after this long")
+    parser.add_argument("--cpus", default="", help="Ch 15: pin to these cores, e.g. 0,1,2 (a 'machine' of its own)")
+    parser.add_argument("--serial", action="store_true", help="Ch 15: compute one step at a time (a pipeline stage)")
     args = parser.parse_args()
 
+    if args.cpus:
+        pin_to_cpus([int(c) for c in args.cpus.split(",")])
     if args.threads:
         torch.set_num_threads(args.threads)
     stage = load_stage(args.first, args.last, args.embed, args.head)
+    stage.block_delay_ms, stage.slow_from = args.block_delay_ms, time.monotonic() + args.block_delay_after_s
     faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms, args.hang_after_s)
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
-    service = StageWorkerService(args.worker_id, stage, faults, args.generation)
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8), options=BIG_MESSAGES)
+    service = StageWorkerService(args.worker_id, stage, faults, args.generation, args.epoch)
+    if args.serial:
+        service.compute_lock = threading.Lock()
     pb_grpc.add_StageWorkerServicer_to_server(service, server)
     server.add_insecure_port(f"127.0.0.1:{args.port}")
     server.start()
     print(f"[worker {args.worker_id} gen {args.generation} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
           f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}"
-          f"{f'  FAULTS {faults}' if faults != FaultPlan() else ''}", flush=True)
+          f"{f'  FAULTS {faults}' if faults != FaultPlan() else ''}"
+          f"{f'  +{args.block_delay_ms} ms per block after {args.block_delay_after_s} s' if args.block_delay_ms else ''}",
+          flush=True)
     server.wait_for_termination()
 
 

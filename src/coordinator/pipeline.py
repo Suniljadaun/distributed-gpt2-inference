@@ -1,11 +1,16 @@
 """
-pipeline.py - Chapter 8 (Ch 9 KV-cache; Ch 10 retries; Ch 11 step_batch; Ch 12 reconnect; Ch 14 fencing)
+pipeline.py - Chapter 8 (Ch 9 KV-cache; Ch 10 retries; Ch 11 step_batch; Ch 12 reconnect; Ch 14 fencing;
+                         Ch 15 layout gate, epochs, step statistics)
 The coordinator's view of the workers: send each step through the stages in order,
 and generate text token by token, exactly like src/model/generate.py but across processes.
 """
 import math
 import random
+import threading
 import time
+from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import grpc
@@ -20,6 +25,49 @@ RETRYABLE = {grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED}
 # Ch 12: after a worker restarts on the same port, reconnect within ~0.5 s (gRPC's default backoff grows to 120 s)
 FAST_RECONNECT = [("grpc.initial_reconnect_backoff_ms", 100), ("grpc.min_reconnect_backoff_ms", 100),
                   ("grpc.max_reconnect_backoff_ms", 500)]
+# Ch 15: KV-cache migration can send more than gRPC's 4 MB default in one message
+CHANNEL_OPTIONS = FAST_RECONNECT + [("grpc.max_send_message_length", 256 << 20),
+                                    ("grpc.max_receive_message_length", 256 << 20)]
+
+
+class LayoutGate:
+    """Ch 15: a readers-writer lock. Steps hold it SHARED (many at once); a layout change holds it
+    EXCLUSIVE (alone, after every running step has finished). Waiting writers go first, so a busy
+    system cannot postpone a layer move forever."""
+
+    def __init__(self) -> None:
+        self._cond = threading.Condition()
+        self._readers = 0
+        self._writer = False
+        self._writers_waiting = 0
+
+    @contextmanager
+    def shared(self) -> Iterator[None]:
+        with self._cond:
+            while self._writer or self._writers_waiting:
+                self._cond.wait()
+            self._readers += 1
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._readers -= 1
+                self._cond.notify_all()
+
+    @contextmanager
+    def exclusive(self) -> Iterator[None]:
+        with self._cond:
+            self._writers_waiting += 1
+            while self._writer or self._readers:
+                self._cond.wait()
+            self._writers_waiting -= 1
+            self._writer = True
+        try:
+            yield
+        finally:
+            with self._cond:
+                self._writer = False
+                self._cond.notify_all()
 
 
 class DeadlineExceeded(Exception):
@@ -54,9 +102,23 @@ class Pipeline:
         self.max_attempts = max_attempts        # 1 = never retry
         self.backoff_base_s = backoff_base_s
         self.backoff_cap_s = backoff_cap_s
-        self.channels = [grpc.insecure_channel(a, options=FAST_RECONNECT) for a in addresses]
+        self.channels = [grpc.insecure_channel(a, options=CHANNEL_OPTIONS) for a in addresses]
         self.stubs = [pb_grpc.StageWorkerStub(c) for c in self.channels]
         self.expected = [0] * len(addresses)     # Ch 14: generation each stage must be (0 = don't check)
+        self.epoch = 0                           # Ch 15: layout epoch every call assumes (0 = don't check)
+        self.gate = LayoutGate()                 # Ch 15: steps share it; a layer move takes it alone
+        # (time, tokens, compute ms per stage, blocks ms per stage), one entry per decode step
+        self.stats: deque[tuple[float, int, tuple[float, ...], tuple[float, ...]]] = deque(maxlen=2000)
+        self.stats_lock = threading.Lock()
+
+    def _record(self, tokens: int, compute: list[float], blocks: list[float]) -> None:
+        """Ch 15: remember each DECODE step's per-stage times, for the rebalancer's monitor."""
+        with self.stats_lock:
+            self.stats.append((time.monotonic(), tokens, tuple(compute), tuple(blocks)))
+
+    def recent(self, since: float) -> list[tuple[float, int, tuple[float, ...], tuple[float, ...]]]:
+        with self.stats_lock:
+            return [s for s in self.stats if s[0] >= since]
 
     def set_expected(self, stage: int, generation: int) -> None:
         """Ch 14: from now on, only talk to (and only believe) this generation of `stage`."""
@@ -114,55 +176,65 @@ class Pipeline:
     def step(self, request_id: str, step_id: int, new_ids: list[int], start_pos: int,
              deadline: float = math.inf) -> tuple[int, StepTiming]:
         """One step through every stage: only the NEW tokens travel. Returns the next token id."""
-        start = time.perf_counter()
-        message = tensor_to_proto(torch.tensor([new_ids]))
-        compute, retries = [], 0
-        for k, stub in enumerate(self.stubs):
-            request = pb.ForwardRequest(request_id=request_id, step_id=step_id, input=message, start_pos=start_pos,
-                                        expect_generation=self.expected[k])
-            reply, r = self._forward(stub, request, deadline)
-            self._check_generation(k, reply)
-            retries += r
-            if (reply.request_id, reply.step_id) != (request_id, step_id):
-                raise RuntimeError(f"reply for {reply.request_id}/{reply.step_id}, expected {request_id}/{step_id}")
-            if reply.cache_len != start_pos + len(new_ids):
-                raise RuntimeError(f"worker cache holds {reply.cache_len} positions, expected {start_pos + len(new_ids)}")
-            compute.append(reply.compute_ms)
-            message = reply.output                     # hidden state passes through untouched
-        timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
-        return reply.next_token, timing
+        with self.gate.shared():                       # Ch 15: never while the layout is changing
+            start = time.perf_counter()
+            message = tensor_to_proto(torch.tensor([new_ids]))
+            compute, blocks, retries = [], [], 0
+            for k, stub in enumerate(self.stubs):
+                request = pb.ForwardRequest(request_id=request_id, step_id=step_id, input=message,
+                                            start_pos=start_pos, expect_generation=self.expected[k],
+                                            expect_epoch=self.epoch)
+                reply, r = self._forward(stub, request, deadline)
+                self._check_generation(k, reply)
+                retries += r
+                if (reply.request_id, reply.step_id) != (request_id, step_id):
+                    raise RuntimeError(f"reply for {reply.request_id}/{reply.step_id}, expected {request_id}/{step_id}")
+                if reply.cache_len != start_pos + len(new_ids):
+                    raise RuntimeError(f"worker cache holds {reply.cache_len} positions, "
+                                       f"expected {start_pos + len(new_ids)}")
+                compute.append(reply.compute_ms)
+                blocks.append(reply.blocks_ms)
+                message = reply.output                 # hidden state passes through untouched
+            if len(new_ids) == 1:
+                self._record(1, compute, blocks)       # decode steps only: prefill would distort the monitor
+            timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
+            return reply.next_token, timing
 
     def step_batch(self, items: list[tuple[str, int, int, int]],
                    deadline: float = math.inf) -> tuple[list[int], StepTiming]:
         """Ch 11: ONE decode step for several requests. items = (request_id, step_id, last_token, start_pos).
         One ForwardBatch call per stage carries them all. Returns each request's next token, in order."""
-        start = time.perf_counter()
-        inputs = [tensor_to_proto(torch.tensor([[tok]])) for _, _, tok, _ in items]
-        compute, retries = [], 0
-        for k, stub in enumerate(self.stubs):
-            batch = pb.ForwardBatchRequest(items=[
-                pb.ForwardRequest(request_id=rid, step_id=sid, input=x, start_pos=pos,
-                                  expect_generation=self.expected[k])
-                for (rid, sid, _, pos), x in zip(items, inputs)])
-            reply, r = self._call(stub.ForwardBatch, batch, deadline, f"batch of {len(items)}")
-            retries += r
-            for (rid, sid, _, pos), rep in zip(items, reply.items):
-                self._check_generation(k, rep)
-                if (rep.request_id, rep.step_id, rep.cache_len) != (rid, sid, pos + 1):
-                    raise RuntimeError(f"batch reply {rep.request_id}/{rep.step_id}/{rep.cache_len} "
-                                       f"does not match {rid}/{sid}/{pos + 1}")
-            compute.append(reply.compute_ms)
-            inputs = [rep.output for rep in reply.items]
-        timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
-        return [rep.next_token for rep in reply.items], timing
+        with self.gate.shared():
+            start = time.perf_counter()
+            inputs = [tensor_to_proto(torch.tensor([[tok]])) for _, _, tok, _ in items]
+            compute, blocks, retries = [], [], 0
+            for k, stub in enumerate(self.stubs):
+                batch = pb.ForwardBatchRequest(items=[
+                    pb.ForwardRequest(request_id=rid, step_id=sid, input=x, start_pos=pos,
+                                      expect_generation=self.expected[k], expect_epoch=self.epoch)
+                    for (rid, sid, _, pos), x in zip(items, inputs)])
+                reply, r = self._call(stub.ForwardBatch, batch, deadline, f"batch of {len(items)}")
+                retries += r
+                for (rid, sid, _, pos), rep in zip(items, reply.items):
+                    self._check_generation(k, rep)
+                    if (rep.request_id, rep.step_id, rep.cache_len) != (rid, sid, pos + 1):
+                        raise RuntimeError(f"batch reply {rep.request_id}/{rep.step_id}/{rep.cache_len} "
+                                           f"does not match {rid}/{sid}/{pos + 1}")
+                compute.append(reply.compute_ms)
+                blocks.append(reply.blocks_ms)
+                inputs = [rep.output for rep in reply.items]
+            self._record(len(items), compute, blocks)
+            timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
+            return [rep.next_token for rep in reply.items], timing
 
     def release(self, request_id: str) -> None:
         """Tell every worker to drop this request's KV-cache. Best effort: never raises."""
-        for stub in self.stubs:
-            try:
-                stub.Release(pb.ReleaseRequest(request_id=request_id), timeout=min(self.timeout_s, 1.0))
-            except grpc.RpcError:
-                pass                                   # a dead worker has no cache to free anyway
+        with self.gate.shared():
+            for stub in self.stubs:
+                try:
+                    stub.Release(pb.ReleaseRequest(request_id=request_id), timeout=min(self.timeout_s, 1.0))
+                except grpc.RpcError:
+                    pass                               # a dead worker has no cache to free anyway
 
     def close(self) -> None:
         for channel in self.channels:

@@ -61,6 +61,31 @@ class StageWorkerStub:
                 request_serializer=src_dot_proto_dot_inference__pb2.PingRequest.SerializeToString,
                 response_deserializer=src_dot_proto_dot_inference__pb2.PingReply.FromString,
                 _registered_method=True)
+        self.PrepareLayer = channel.unary_unary(
+                '/inference.StageWorker/PrepareLayer',
+                request_serializer=src_dot_proto_dot_inference__pb2.PrepareLayerRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.PrepareLayerReply.FromString,
+                _registered_method=True)
+        self.ExportKV = channel.unary_unary(
+                '/inference.StageWorker/ExportKV',
+                request_serializer=src_dot_proto_dot_inference__pb2.ExportKVRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.ExportKVReply.FromString,
+                _registered_method=True)
+        self.ImportKV = channel.unary_unary(
+                '/inference.StageWorker/ImportKV',
+                request_serializer=src_dot_proto_dot_inference__pb2.ImportKVRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.ImportKVReply.FromString,
+                _registered_method=True)
+        self.CommitLayout = channel.unary_unary(
+                '/inference.StageWorker/CommitLayout',
+                request_serializer=src_dot_proto_dot_inference__pb2.CommitLayoutRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.CommitLayoutReply.FromString,
+                _registered_method=True)
+        self.AbortLayout = channel.unary_unary(
+                '/inference.StageWorker/AbortLayout',
+                request_serializer=src_dot_proto_dot_inference__pb2.AbortLayoutRequest.SerializeToString,
+                response_deserializer=src_dot_proto_dot_inference__pb2.AbortLayoutReply.FromString,
+                _registered_method=True)
 
 
 class StageWorkerServicer:
@@ -103,6 +128,42 @@ class StageWorkerServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PrepareLayer(self, request, context):
+        """Ch 15: moving one boundary layer between workers, in two phases
+        receiver: load the layer's weights
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ExportKV(self, request, context):
+        """sender: every request's K,V of that layer
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ImportKV(self, request, context):
+        """receiver: stage those K,V
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CommitLayout(self, request, context):
+        """both: switch to the new range + epoch
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AbortLayout(self, request, context):
+        """both: forget anything prepared
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_StageWorkerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -130,6 +191,31 @@ def add_StageWorkerServicer_to_server(servicer, server):
                     servicer.Ping,
                     request_deserializer=src_dot_proto_dot_inference__pb2.PingRequest.FromString,
                     response_serializer=src_dot_proto_dot_inference__pb2.PingReply.SerializeToString,
+            ),
+            'PrepareLayer': grpc.unary_unary_rpc_method_handler(
+                    servicer.PrepareLayer,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.PrepareLayerRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.PrepareLayerReply.SerializeToString,
+            ),
+            'ExportKV': grpc.unary_unary_rpc_method_handler(
+                    servicer.ExportKV,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.ExportKVRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.ExportKVReply.SerializeToString,
+            ),
+            'ImportKV': grpc.unary_unary_rpc_method_handler(
+                    servicer.ImportKV,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.ImportKVRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.ImportKVReply.SerializeToString,
+            ),
+            'CommitLayout': grpc.unary_unary_rpc_method_handler(
+                    servicer.CommitLayout,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.CommitLayoutRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.CommitLayoutReply.SerializeToString,
+            ),
+            'AbortLayout': grpc.unary_unary_rpc_method_handler(
+                    servicer.AbortLayout,
+                    request_deserializer=src_dot_proto_dot_inference__pb2.AbortLayoutRequest.FromString,
+                    response_serializer=src_dot_proto_dot_inference__pb2.AbortLayoutReply.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -269,6 +355,141 @@ class StageWorker:
             '/inference.StageWorker/Ping',
             src_dot_proto_dot_inference__pb2.PingRequest.SerializeToString,
             src_dot_proto_dot_inference__pb2.PingReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PrepareLayer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/PrepareLayer',
+            src_dot_proto_dot_inference__pb2.PrepareLayerRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.PrepareLayerReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ExportKV(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/ExportKV',
+            src_dot_proto_dot_inference__pb2.ExportKVRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.ExportKVReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ImportKV(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/ImportKV',
+            src_dot_proto_dot_inference__pb2.ImportKVRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.ImportKVReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CommitLayout(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/CommitLayout',
+            src_dot_proto_dot_inference__pb2.CommitLayoutRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.CommitLayoutReply.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AbortLayout(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/inference.StageWorker/AbortLayout',
+            src_dot_proto_dot_inference__pb2.AbortLayoutRequest.SerializeToString,
+            src_dot_proto_dot_inference__pb2.AbortLayoutReply.FromString,
             options,
             channel_credentials,
             insecure,

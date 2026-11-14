@@ -23,6 +23,7 @@ class WorkerSpec:
     head: bool = False
     extra_args: tuple[str, ...] = ()       # Ch 10: e.g. ("--fail-every", "3") for fault injection
     first_gen_args: tuple[str, ...] = ()   # Ch 12: only for generation 1, e.g. ("--hang-after-s", "3")
+    epoch: int = 1                         # Ch 15: layout epoch (the rebalancer updates first/last/epoch)
 
     @property
     def address(self) -> str:
@@ -31,7 +32,7 @@ class WorkerSpec:
     def command(self, generation: int = 1) -> list[str]:
         cmd = [sys.executable, "-m", "src.worker.server", "--worker-id", self.worker_id,
                "--port", str(self.port), "--first", str(self.first), "--last", str(self.last),
-               "--generation", str(generation)]
+               "--generation", str(generation), "--epoch", str(self.epoch)]
         cmd += (["--embed"] if self.embed else []) + (["--head"] if self.head else [])
         cmd += list(self.extra_args)
         return cmd + (list(self.first_gen_args) if generation == 1 else [])   # a restart is a clean worker

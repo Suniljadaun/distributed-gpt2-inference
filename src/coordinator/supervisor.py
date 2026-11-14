@@ -1,5 +1,5 @@
 """
-supervisor.py - Chapter 12 (Chapter 14: listeners told about every new generation)
+supervisor.py - Chapter 12 (Ch 14: listeners told about every new generation; Ch 15: update_spec)
 Owns the worker processes. A monitor thread sends a heartbeat (Ping) to every worker every
 `interval_s`. A worker is declared DEAD when its process has exited, or when it misses
 `misses_allowed` heartbeats in a row (alive but hung). A dead worker is killed, restarted on the
@@ -9,7 +9,7 @@ import math
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import grpc
 
@@ -71,6 +71,12 @@ class Supervisor:
     def wait_all_up(self, timeout_s: float) -> bool:
         """Block until every worker is UP (True) or timeout_s passes (False). timeout_s may be math.inf."""
         return self.all_up.wait(None if math.isinf(timeout_s) else max(0.0, timeout_s))
+
+    def update_spec(self, index: int, **changes) -> None:
+        """Ch 15: the layout changed; a restart of this worker must use the new range and epoch."""
+        with self.lock:
+            w = self.workers[index]
+            w.spec = replace(w.spec, **changes)
 
     def kill(self, index: int) -> None:
         """Test helper: crash a worker the hard way, like a power cut."""

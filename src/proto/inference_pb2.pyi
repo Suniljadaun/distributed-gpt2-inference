@@ -30,6 +30,86 @@ class Tensor(_message.Message):
     data: bytes
     def __init__(self, shape: _Optional[_Iterable[int]] = ..., dtype: _Optional[_Union[DType, str]] = ..., data: _Optional[bytes] = ...) -> None: ...
 
+class PrepareLayerRequest(_message.Message):
+    __slots__ = ("epoch", "layer")
+    EPOCH_FIELD_NUMBER: _ClassVar[int]
+    LAYER_FIELD_NUMBER: _ClassVar[int]
+    epoch: int
+    layer: int
+    def __init__(self, epoch: _Optional[int] = ..., layer: _Optional[int] = ...) -> None: ...
+
+class PrepareLayerReply(_message.Message):
+    __slots__ = ("load_ms",)
+    LOAD_MS_FIELD_NUMBER: _ClassVar[int]
+    load_ms: float
+    def __init__(self, load_ms: _Optional[float] = ...) -> None: ...
+
+class ExportKVRequest(_message.Message):
+    __slots__ = ("layer",)
+    LAYER_FIELD_NUMBER: _ClassVar[int]
+    layer: int
+    def __init__(self, layer: _Optional[int] = ...) -> None: ...
+
+class KVSlice(_message.Message):
+    __slots__ = ("request_id", "k", "v")
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
+    K_FIELD_NUMBER: _ClassVar[int]
+    V_FIELD_NUMBER: _ClassVar[int]
+    request_id: str
+    k: Tensor
+    v: Tensor
+    def __init__(self, request_id: _Optional[str] = ..., k: _Optional[_Union[Tensor, _Mapping]] = ..., v: _Optional[_Union[Tensor, _Mapping]] = ...) -> None: ...
+
+class ExportKVReply(_message.Message):
+    __slots__ = ("slices",)
+    SLICES_FIELD_NUMBER: _ClassVar[int]
+    slices: _containers.RepeatedCompositeFieldContainer[KVSlice]
+    def __init__(self, slices: _Optional[_Iterable[_Union[KVSlice, _Mapping]]] = ...) -> None: ...
+
+class ImportKVRequest(_message.Message):
+    __slots__ = ("epoch", "layer", "slices")
+    EPOCH_FIELD_NUMBER: _ClassVar[int]
+    LAYER_FIELD_NUMBER: _ClassVar[int]
+    SLICES_FIELD_NUMBER: _ClassVar[int]
+    epoch: int
+    layer: int
+    slices: _containers.RepeatedCompositeFieldContainer[KVSlice]
+    def __init__(self, epoch: _Optional[int] = ..., layer: _Optional[int] = ..., slices: _Optional[_Iterable[_Union[KVSlice, _Mapping]]] = ...) -> None: ...
+
+class ImportKVReply(_message.Message):
+    __slots__ = ("imported",)
+    IMPORTED_FIELD_NUMBER: _ClassVar[int]
+    imported: int
+    def __init__(self, imported: _Optional[int] = ...) -> None: ...
+
+class CommitLayoutRequest(_message.Message):
+    __slots__ = ("epoch", "first_layer", "last_layer")
+    EPOCH_FIELD_NUMBER: _ClassVar[int]
+    FIRST_LAYER_FIELD_NUMBER: _ClassVar[int]
+    LAST_LAYER_FIELD_NUMBER: _ClassVar[int]
+    epoch: int
+    first_layer: int
+    last_layer: int
+    def __init__(self, epoch: _Optional[int] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ...) -> None: ...
+
+class CommitLayoutReply(_message.Message):
+    __slots__ = ("epoch", "first_layer", "last_layer")
+    EPOCH_FIELD_NUMBER: _ClassVar[int]
+    FIRST_LAYER_FIELD_NUMBER: _ClassVar[int]
+    LAST_LAYER_FIELD_NUMBER: _ClassVar[int]
+    epoch: int
+    first_layer: int
+    last_layer: int
+    def __init__(self, epoch: _Optional[int] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ...) -> None: ...
+
+class AbortLayoutRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class AbortLayoutReply(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class PingRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
@@ -53,29 +133,33 @@ class ForwardBatchRequest(_message.Message):
     def __init__(self, items: _Optional[_Iterable[_Union[ForwardRequest, _Mapping]]] = ...) -> None: ...
 
 class ForwardBatchReply(_message.Message):
-    __slots__ = ("items", "compute_ms")
+    __slots__ = ("items", "compute_ms", "blocks_ms")
     ITEMS_FIELD_NUMBER: _ClassVar[int]
     COMPUTE_MS_FIELD_NUMBER: _ClassVar[int]
+    BLOCKS_MS_FIELD_NUMBER: _ClassVar[int]
     items: _containers.RepeatedCompositeFieldContainer[ForwardReply]
     compute_ms: float
-    def __init__(self, items: _Optional[_Iterable[_Union[ForwardReply, _Mapping]]] = ..., compute_ms: _Optional[float] = ...) -> None: ...
+    blocks_ms: float
+    def __init__(self, items: _Optional[_Iterable[_Union[ForwardReply, _Mapping]]] = ..., compute_ms: _Optional[float] = ..., blocks_ms: _Optional[float] = ...) -> None: ...
 
 class ForwardRequest(_message.Message):
-    __slots__ = ("request_id", "step_id", "input", "start_pos", "expect_generation")
+    __slots__ = ("request_id", "step_id", "input", "start_pos", "expect_generation", "expect_epoch")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_ID_FIELD_NUMBER: _ClassVar[int]
     INPUT_FIELD_NUMBER: _ClassVar[int]
     START_POS_FIELD_NUMBER: _ClassVar[int]
     EXPECT_GENERATION_FIELD_NUMBER: _ClassVar[int]
+    EXPECT_EPOCH_FIELD_NUMBER: _ClassVar[int]
     request_id: str
     step_id: int
     input: Tensor
     start_pos: int
     expect_generation: int
-    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., input: _Optional[_Union[Tensor, _Mapping]] = ..., start_pos: _Optional[int] = ..., expect_generation: _Optional[int] = ...) -> None: ...
+    expect_epoch: int
+    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., input: _Optional[_Union[Tensor, _Mapping]] = ..., start_pos: _Optional[int] = ..., expect_generation: _Optional[int] = ..., expect_epoch: _Optional[int] = ...) -> None: ...
 
 class ForwardReply(_message.Message):
-    __slots__ = ("request_id", "step_id", "output", "next_token", "compute_ms", "cache_len", "generation")
+    __slots__ = ("request_id", "step_id", "output", "next_token", "compute_ms", "cache_len", "generation", "blocks_ms")
     REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_ID_FIELD_NUMBER: _ClassVar[int]
     OUTPUT_FIELD_NUMBER: _ClassVar[int]
@@ -83,6 +167,7 @@ class ForwardReply(_message.Message):
     COMPUTE_MS_FIELD_NUMBER: _ClassVar[int]
     CACHE_LEN_FIELD_NUMBER: _ClassVar[int]
     GENERATION_FIELD_NUMBER: _ClassVar[int]
+    BLOCKS_MS_FIELD_NUMBER: _ClassVar[int]
     request_id: str
     step_id: int
     output: Tensor
@@ -90,14 +175,15 @@ class ForwardReply(_message.Message):
     compute_ms: float
     cache_len: int
     generation: int
-    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., output: _Optional[_Union[Tensor, _Mapping]] = ..., next_token: _Optional[int] = ..., compute_ms: _Optional[float] = ..., cache_len: _Optional[int] = ..., generation: _Optional[int] = ...) -> None: ...
+    blocks_ms: float
+    def __init__(self, request_id: _Optional[str] = ..., step_id: _Optional[int] = ..., output: _Optional[_Union[Tensor, _Mapping]] = ..., next_token: _Optional[int] = ..., compute_ms: _Optional[float] = ..., cache_len: _Optional[int] = ..., generation: _Optional[int] = ..., blocks_ms: _Optional[float] = ...) -> None: ...
 
 class InfoRequest(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
 class InfoReply(_message.Message):
-    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes", "generation")
+    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes", "generation", "epoch")
     WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     FIRST_LAYER_FIELD_NUMBER: _ClassVar[int]
     LAST_LAYER_FIELD_NUMBER: _ClassVar[int]
@@ -108,6 +194,7 @@ class InfoReply(_message.Message):
     CACHED_REQUESTS_FIELD_NUMBER: _ClassVar[int]
     KV_BYTES_FIELD_NUMBER: _ClassVar[int]
     GENERATION_FIELD_NUMBER: _ClassVar[int]
+    EPOCH_FIELD_NUMBER: _ClassVar[int]
     worker_id: str
     first_layer: int
     last_layer: int
@@ -118,7 +205,8 @@ class InfoReply(_message.Message):
     cached_requests: int
     kv_bytes: int
     generation: int
-    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ..., generation: _Optional[int] = ...) -> None: ...
+    epoch: int
+    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ..., generation: _Optional[int] = ..., epoch: _Optional[int] = ...) -> None: ...
 
 class ReleaseRequest(_message.Message):
     __slots__ = ("request_id",)

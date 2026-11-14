@@ -1,5 +1,5 @@
 // inference.proto - Ch 7 Tensor, Ch 8 StageWorker, Ch 9 KV-cache, Ch 10 Coordinator, Ch 11 ForwardBatch,
-//                   Ch 12 Ping, Ch 13 replay counters, Ch 14 fencing
+//                   Ch 12 Ping, Ch 13 replay counters, Ch 14 fencing, Ch 15 rebalancing
 // The messages of the distributed inference engine.
 // Generate Python code (run from final\):
 //   python -m grpc_tools.protoc -I . --python_out=. --pyi_out=. --grpc_python_out=. src/proto/inference.proto
@@ -32,7 +32,64 @@ service StageWorker {
   rpc Release (ReleaseRequest) returns (ReleaseReply);   // Ch 9: forget a finished request's KV-cache
   rpc ForwardBatch (ForwardBatchRequest) returns (ForwardBatchReply);   // Ch 11: one decode step, many requests
   rpc Ping (PingRequest) returns (PingReply);            // Ch 12: heartbeat, cheap, answered without the model
+  // Ch 15: moving one boundary layer between workers, in two phases
+  rpc PrepareLayer (PrepareLayerRequest) returns (PrepareLayerReply);    // receiver: load the layer's weights
+  rpc ExportKV (ExportKVRequest) returns (ExportKVReply);                // sender: every request's K,V of that layer
+  rpc ImportKV (ImportKVRequest) returns (ImportKVReply);                // receiver: stage those K,V
+  rpc CommitLayout (CommitLayoutRequest) returns (CommitLayoutReply);    // both: switch to the new range + epoch
+  rpc AbortLayout (AbortLayoutRequest) returns (AbortLayoutReply);       // both: forget anything prepared
 }
+
+// ---------------- Chapter 15: dynamic stage rebalancing ----------------
+
+message PrepareLayerRequest {
+  int64 epoch = 1;          // the layout epoch this preparation belongs to
+  int32 layer = 2;          // the layer this worker will receive
+}
+
+message PrepareLayerReply {
+  double load_ms = 1;
+}
+
+message ExportKVRequest {
+  int32 layer = 1;
+}
+
+message KVSlice {           // one request's keys and values for one layer
+  string request_id = 1;
+  Tensor k = 2;
+  Tensor v = 3;
+}
+
+message ExportKVReply {
+  repeated KVSlice slices = 1;
+}
+
+message ImportKVRequest {
+  int64 epoch = 1;
+  int32 layer = 2;
+  repeated KVSlice slices = 3;
+}
+
+message ImportKVReply {
+  int32 imported = 1;
+}
+
+message CommitLayoutRequest {
+  int64 epoch = 1;
+  int32 first_layer = 2;
+  int32 last_layer = 3;
+}
+
+message CommitLayoutReply {
+  int64 epoch = 1;
+  int32 first_layer = 2;
+  int32 last_layer = 3;
+}
+
+message AbortLayoutRequest {}
+
+message AbortLayoutReply {}
 
 // Ch 12: heartbeat
 message PingRequest {}
@@ -52,6 +109,7 @@ message ForwardBatchRequest {
 message ForwardBatchReply {
   repeated ForwardReply items = 1;   // same order as the request's items
   double compute_ms = 2;             // the whole batch's layers, measured inside the worker
+  double blocks_ms = 3;              // Ch 15: the part of compute_ms spent in (movable) blocks
 }
 
 message ForwardRequest {
@@ -60,6 +118,7 @@ message ForwardRequest {
   Tensor input = 3;        // first stage: token ids [1, s] int64; other stages: hidden [1, s, 768] float32
   int32 start_pos = 4;     // Ch 9: position of input's first token = tokens already in this request's cache
   int64 expect_generation = 5;   // Ch 14: fencing token; the worker refuses the call if it is another generation (0 = no check)
+  int64 expect_epoch = 6;        // Ch 15: layout epoch the caller assumes (0 = no check)
 }
 
 message ForwardReply {
@@ -70,6 +129,7 @@ message ForwardReply {
   double compute_ms = 5;   // time spent in the layers, measured inside the worker
   int32 cache_len = 6;     // Ch 9: positions in this request's cache after this step
   int64 generation = 7;    // Ch 14: the generation that computed this reply
+  double blocks_ms = 8;    // Ch 15: the part of compute_ms spent in (movable) blocks
 }
 
 message InfoRequest {}
@@ -85,6 +145,7 @@ message InfoReply {
   int32 cached_requests = 8;   // Ch 9: requests whose KV-cache this worker holds
   int64 kv_bytes = 9;          // Ch 9: total size of those caches
   int64 generation = 10;       // Ch 12: incarnation number, +1 on every restart
+  int64 epoch = 11;            // Ch 15: layout epoch, +1 on every layer move
 }
 
 message ReleaseRequest {
