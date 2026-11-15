@@ -42,7 +42,7 @@ stopping service.
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-101 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+103 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -133,7 +133,8 @@ gate, a readers-writer lock with writer priority, pauses new steps. (3) `ExportK
 KV-cache slices for all active requests. (4) `CommitLayout` on the **receiver first**, then the sender, with epoch + 1.
 (5) Write the new layout to the token log, still inside the gate, so it precedes every token of the new epoch.
 (6) Release the gate. Any failure before the receiver commits leads to `AbortLayout`, and the old layout stays.
-After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 6–30 ms.
+After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 7–34 ms in
+the rebalancing runs; it grows with the KV-cache that has to move, about 11 ms per MB (§5.6).
 
 **Rejected designs** (all implemented and measured):
 - *Imbalance threshold* (the rule in the scope report: move a layer off the slower stage when slow/fast > 1.25). It is
@@ -317,6 +318,32 @@ rather than 5%, which is within the noise of the throughput figures.
 *Figure 8. Throughput over time (4 s buckets): static 3/3 split, the model policy and the imbalance threshold.
 Shaded: worker A slowed.*
 
+**Cost of one layer move.** A move carries the moved layer's K and V for every request in flight: 2 × 768 float32
+values = **6,144 bytes per cached token per request**. With R requests of L cached tokens each in flight, layer 2
+was moved from A to B and back three times (six moves per configuration):
+
+| requests × tokens | KV migrated | pause (median) | pause (max) | weights loaded, no pause |
+|---|---|---|---|---|
+| 1 × 64 | 0.39 MB | 17 ms | 33 ms | 96 ms |
+| 1 × 512 | 3.1 MB | 51 ms | 64 ms | 80 ms |
+| 4 × 256 | 6.3 MB | 89 ms | 121 ms | 86 ms |
+| 16 × 64 | 6.3 MB | 73 ms | 90 ms | 84 ms |
+| 4 × 512 | 12.6 MB | 180 ms | 204 ms | 71 ms |
+| 16 × 512 | 50.3 MB | 572 ms | 838 ms | 70 ms |
+
+The bytes migrated equalled R × L × 6,144 in all nine configurations. The pause, during which every request
+waits, is a straight line in the bytes: **15 ms + 11.1 ms per MB** (least squares, R² 1.00), i.e. about 90 MB/s
+through export, gRPC and import on one machine. It depends only on the bytes, not on how they are split: 4 × 256 and
+16 × 64 tokens (both 6.3 MB) pause for about the same time. Loading the layer's weights (phase 1) takes 70–96 ms but
+does not pause anything. The moves in the rebalancing runs (4 requests of at most 35 tokens, under 1 MB) paused for 7–34 ms. At 16 requests of 512 tokens
+the pause reaches about 0.6 s, roughly 25 decode steps lost by every request in flight. At that size, sending the
+slices before the pause and only the last few positions inside it would shorten the pause, and so would dropping a
+request's slice and replaying it from the token log (§4.6).
+
+![KV migration](../results/charts/kv_migration.png)
+
+*Figure 9. Pause of one layer move vs KV-cache migrated (log–log; labels are requests × cached tokens).*
+
 ### 5.7 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.
 CPU frequency scaling and background programs add run-to-run variation of roughly ±5%; only differences well
@@ -341,6 +368,7 @@ throughout. The main lessons:
 replicate it (e.g. with Raft). Layer moves need workers that the coordinator starts itself: workers that outlive a
 crashed coordinator (as in the Docker deployment) could be left at different epochs by an interrupted move, which a
 new coordinator detects but does not repair. Token logging currently works with the slot scheduler only, not with continuous
-batching. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
+batching. A layer move pauses all requests for about 11 ms per MB of KV-cache; with large caches the slices should
+be copied before the pause. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
 GPT-2, which the design supports but which were not measured.
 

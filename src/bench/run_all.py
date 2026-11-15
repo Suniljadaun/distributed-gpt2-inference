@@ -29,7 +29,8 @@ from src.bench.svg import bar_chart, line_chart
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
-ALL = ["reference", "kv_cache", "split_sweep", "wire", "throughput", "bubble", "load", "recovery", "rebalance"]
+ALL = ["reference", "kv_cache", "split_sweep", "wire", "throughput", "bubble", "load", "recovery", "rebalance",
+       "kv_migration"]
 
 
 def environment() -> dict:
@@ -62,6 +63,8 @@ def run_experiment(name: str, quick: bool):
         return ex.recovery(50460)
     if name == "rebalance":
         return ex.rebalance(quick)
+    if name == "kv_migration":
+        return ex.kv_migration(50470, repeats=2 if quick else 3)
     raise ValueError(f"unknown experiment {name!r}")
 
 
@@ -99,6 +102,14 @@ def analysis(name: str, data) -> str:
         fits = {k: stats.growth(v) for k, v in data["step_ms"].items()}
         return "Least-squares fit of step time vs token number: " + "; ".join(
             f"{k} **{f['slope']:+.3f} ms per token** (R² {f['r2']:.2f})" for k, f in fits.items()) + "."
+    if name == "kv_migration":
+        fit = stats.linear_fit([r["kv_MB"] for r in data], [r["pause_ms"] for r in data])
+        per_token = {r["bytes_per_token"] for r in data}
+        return (f"Bytes per cached token per request: {', '.join(map(str, sorted(per_token)))} "
+                f"(expected {ex.KV_BYTES_PER_TOKEN}: K and V, 768 float32 each). "
+                f"Least-squares pause = **{fit['intercept']:.1f} ms + {fit['slope']:.2f} ms per MB** "
+                f"(R² {fit['r2']:.2f}), i.e. about {1000 / fit['slope']:.0f} MB/s while paused." if fit["slope"] > 0
+                else "")
     if name == "rebalance":
         an = stats.rebalance_analysis(data)
         lines = [f"Worker A is clearly slow from the t = {an['slow_start_t']} bucket."]

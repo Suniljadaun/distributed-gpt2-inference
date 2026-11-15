@@ -23,6 +23,15 @@ def growth(values: list[float]) -> dict:
             "r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0}
 
 
+def linear_fit(x: list[float], y: list[float]) -> dict:
+    """Least-squares y ~ intercept + slope * x (e.g. move pause vs MB migrated)."""
+    xa, ya = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    slope, intercept = np.polyfit(xa, ya, 1)
+    fitted = intercept + slope * xa
+    ss_res, ss_tot = float(np.sum((ya - fitted) ** 2)), float(np.sum((ya - ya.mean()) ** 2))
+    return {"slope": float(slope), "intercept": float(intercept), "r2": 1.0 - ss_res / ss_tot if ss_tot > 0 else 1.0}
+
+
 def bootstrap_ci(values: list[float], stat=np.mean, n: int = 10_000, level: float = 0.95) -> tuple[float, float]:
     """Percentile bootstrap: resample with replacement n times, take the middle `level` of the statistic."""
     x = np.asarray(values, dtype=float)

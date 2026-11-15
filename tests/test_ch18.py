@@ -124,6 +124,8 @@ def test_matplotlib_writes_every_chart(tmp_path):
         "bubble": [{"m": m, "model_idle": 1 / (m + 1), "model_measured_stages_idle": 1 / (m + 1) + 0.02,
                     "measured_idle": 1 / (m + 1) + 0.01, "A_idle": 1 / (m + 1) + 0.05, "B_idle": 1 / (m + 1)}
                    for m in (1, 2, 4, 8)],
+        "kv_migration": [{"requests": r, "context": c, "kv_MB": r * c * 0.006144, "pause_ms": 5 + 4 * r * c * 0.006144}
+                         for r in (1, 4) for c in (64, 512)],
         "rebalance": _timeline([46, 48, 48, 48, 48, 30, 26, 26, 26], [44, 53, 53, 53, 53, 30, 38, 38, 38],
                                [10, 10, 10, 10, 10, 10.5, 35, 35, 35]),
     }
@@ -230,3 +232,25 @@ def test_threshold_policy_moves_where_the_model_sees_no_gain():
     assert reb.best_move(m) is None                                             # predicted bottleneck 20 ms > 19 ms
     reb.policy = "threshold"
     assert reb.threshold_move(m)[1:] == (0, 1)                                  # moves anyway, and makes it worse
+
+
+# ---------------- G6: KV-cache bytes migrated per layer move ----------------
+
+def test_linear_fit_recovers_pause_per_megabyte():
+    from src.bench import stats
+    fit = stats.linear_fit([0.4, 1.6, 3.1, 6.3], [6.6, 11.4, 17.4, 30.2])
+    assert fit["slope"] == pytest.approx(4.0) and fit["intercept"] == pytest.approx(5.0) and fit["r2"] == pytest.approx(1)
+
+
+def test_kv_migration_moves_exactly_6144_bytes_per_cached_token():
+    """Two requests of 40 and 40 tokens: one move of layer 2 carries 2 x 40 x (K + V) x 768 x 4 bytes."""
+    from src.bench.experiments import KV_BYTES_PER_TOKEN
+    with supervised_cluster(two_stage_layout(base_port=50641)) as (pipe, sup):
+        reb = Rebalancer(pipe, supervisor=sup)
+        for rid in ("x", "y"):
+            pipe.step(rid, 0, [464] * 40, 0)
+        report = reb.move(0, 1)
+        back = reb.move(1, 0)
+    assert KV_BYTES_PER_TOKEN == 6144
+    assert report.kv_requests == back.kv_requests == 2
+    assert report.kv_bytes == back.kv_bytes == 2 * 40 * KV_BYTES_PER_TOKEN

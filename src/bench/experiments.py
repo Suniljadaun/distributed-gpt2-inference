@@ -59,6 +59,42 @@ def split_sweep(base_port: int) -> list[dict]:
     return out
 
 
+KV_BYTES_PER_TOKEN = 2 * 768 * 4             # one layer: K and V, 768 float32 values each, per cached position
+
+
+def kv_migration(base_port: int, requests=(1, 4, 16), contexts=(64, 256, 512), repeats: int = 3) -> list[dict]:
+    """G6: what one layer move costs. R requests of L cached tokens each are in flight; layer 2 moves A -> B and
+    back `repeats` times. Per configuration: bytes of KV-cache migrated per move (vs R x L x 6,144), the pause
+    (all steps blocked: export + import + commits) and the preparation (weights loaded, no pause)."""
+    from src.coordinator.rebalancer import Rebalancer
+    out = []
+    with running_cluster(two_stage_layout(base_port=base_port)) as pipe:
+        reb = Rebalancer(pipe)
+        reb.move(0, 1)                                              # warm-up: first move loads code paths
+        reb.move(1, 0)
+        for r in requests:
+            for ctx in contexts:
+                prompt = (PROMPT * (ctx // len(PROMPT) + 1))[:ctx]
+                rids = [f"kv-{r}-{ctx}-{i}" for i in range(r)]
+                for rid in rids:
+                    pipe.step(rid, 0, prompt, 0)                    # prefill: every stage caches ctx positions
+                moves = []
+                for _ in range(repeats):
+                    moves += [reb.move(0, 1), reb.move(1, 0)]
+                for rid in rids:
+                    pipe.release(rid)
+                assert all(m.kv_requests == r for m in moves)
+                kv = moves[0].kv_bytes
+                out.append({"requests": r, "context": ctx, "kv_MB": round(kv / 1e6, 3),
+                            "expected_MB": round(r * ctx * KV_BYTES_PER_TOKEN / 1e6, 3),
+                            "bytes_per_token": round(kv / (r * ctx)),
+                            "pause_ms": round(statistics.median(m.pause_ms for m in moves), 1),
+                            "pause_max_ms": round(max(m.pause_ms for m in moves), 1),
+                            "prepare_ms": round(statistics.median(m.prepare_ms for m in moves), 1),
+                            "moves": len(moves)})
+    return out
+
+
 def bubble_model(m: int, p: int = 2) -> float:
     """Textbook pipeline bubble: idle fraction of p equal stages processing a burst of m micro-batches."""
     return (p - 1) / (m + p - 1)

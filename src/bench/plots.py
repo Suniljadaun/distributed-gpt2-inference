@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
+import matplotlib.ticker
 
 matplotlib.use("Agg")                     # no window: files only (works in CI too)
 import matplotlib.pyplot as plt           # noqa: E402
@@ -154,8 +155,37 @@ def bubble(data: list[dict], out: Path) -> None:
     _save(fig, out / "bubble.png")
 
 
+def kv_migration(data: list[dict], out: Path) -> None:
+    fig, ax = plt.subplots()
+    fit = stats.linear_fit([r["kv_MB"] for r in data], [r["pause_ms"] for r in data])
+    for r_count, colour, marker in zip(sorted({r["requests"] for r in data}), (BLUE, GREEN, RED, GREY), "os^v"):
+        rows = [r for r in data if r["requests"] == r_count]
+        ax.plot([r["kv_MB"] for r in rows], [r["pause_ms"] for r in rows], marker, color=colour, ms=7,
+                label=f"{r_count} request{'s' if r_count > 1 else ''} in flight")
+        for r in rows:                                      # 4 requests: label above-left, so it never hides another
+            ax.annotate(f"{r['requests']}×{r['context']} tok", (r["kv_MB"], r["pause_ms"]), textcoords="offset points",
+                        xytext=(-8, 7) if r_count == 4 else (6, -11), ha="right" if r_count == 4 else "left",
+                        fontsize=7.5, color=colour)
+    sizes = [r["kv_MB"] for r in data]
+    x = np.geomspace(min(sizes) * 0.8, max(sizes) * 1.25, 60)
+    ax.plot(x, fit["intercept"] + fit["slope"] * x, "--", color="black", lw=1,
+            label=f"fit: {fit['intercept']:.1f} ms + {fit['slope']:.1f} ms/MB (R² {fit['r2']:.2f})")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    for axis in (ax.xaxis, ax.yaxis):
+        axis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
+        axis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    pauses = [r["pause_ms"] for r in data]
+    ax.set_yticks([t for t in (10, 20, 50, 100, 200, 500, 1000, 2000) if min(pauses) / 2 <= t <= max(pauses) * 2])
+    ax.set_ylim(min(pauses) / 1.6, max(pauses) * 1.6)
+    ax.set(title="One layer move: pause vs KV-cache migrated (log–log)", xlabel="KV-cache migrated (MB)",
+           ylabel="pause, median (ms)")
+    ax.legend(loc="upper left", fontsize=8.5)
+    _save(fig, out / "kv_migration.png")
+
+
 DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
-        "wire": wire, "rebalance": rebalance, "bubble": bubble}
+        "wire": wire, "rebalance": rebalance, "bubble": bubble, "kv_migration": kv_migration}
 FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
 
 

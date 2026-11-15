@@ -1,0 +1,115 @@
+{
+  "environment": {
+    "date": "2026-11-15T16:28:23",
+    "git_commit": "0767807",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 31.1,
+  "data": [
+    {
+      "requests": 1,
+      "context": 64,
+      "kv_MB": 0.393,
+      "expected_MB": 0.393,
+      "bytes_per_token": 6144,
+      "pause_ms": 17.3,
+      "pause_max_ms": 32.9,
+      "prepare_ms": 95.7,
+      "moves": 6
+    },
+    {
+      "requests": 1,
+      "context": 256,
+      "kv_MB": 1.573,
+      "expected_MB": 1.573,
+      "bytes_per_token": 6144,
+      "pause_ms": 27.4,
+      "pause_max_ms": 41.3,
+      "prepare_ms": 88.8,
+      "moves": 6
+    },
+    {
+      "requests": 1,
+      "context": 512,
+      "kv_MB": 3.146,
+      "expected_MB": 3.146,
+      "bytes_per_token": 6144,
+      "pause_ms": 51.4,
+      "pause_max_ms": 63.8,
+      "prepare_ms": 79.5,
+      "moves": 6
+    },
+    {
+      "requests": 4,
+      "context": 64,
+      "kv_MB": 1.573,
+      "expected_MB": 1.573,
+      "bytes_per_token": 6144,
+      "pause_ms": 28.3,
+      "pause_max_ms": 41.2,
+      "prepare_ms": 91.8,
+      "moves": 6
+    },
+    {
+      "requests": 4,
+      "context": 256,
+      "kv_MB": 6.291,
+      "expected_MB": 6.291,
+      "bytes_per_token": 6144,
+      "pause_ms": 89.0,
+      "pause_max_ms": 121.0,
+      "prepare_ms": 85.5,
+      "moves": 6
+    },
+    {
+      "requests": 4,
+      "context": 512,
+      "kv_MB": 12.583,
+      "expected_MB": 12.583,
+      "bytes_per_token": 6144,
+      "pause_ms": 180.3,
+      "pause_max_ms": 203.7,
+      "prepare_ms": 70.6,
+      "moves": 6
+    },
+    {
+      "requests": 16,
+      "context": 64,
+      "kv_MB": 6.291,
+      "expected_MB": 6.291,
+      "bytes_per_token": 6144,
+      "pause_ms": 72.9,
+      "pause_max_ms": 89.7,
+      "prepare_ms": 84.1,
+      "moves": 6
+    },
+    {
+      "requests": 16,
+      "context": 256,
+      "kv_MB": 25.166,
+      "expected_MB": 25.166,
+      "bytes_per_token": 6144,
+      "pause_ms": 291.9,
+      "pause_max_ms": 363.9,
+      "prepare_ms": 71.5,
+      "moves": 6
+    },
+    {
+      "requests": 16,
+      "context": 512,
+      "kv_MB": 50.332,
+      "expected_MB": 50.332,
+      "bytes_per_token": 6144,
+      "pause_ms": 572.4,
+      "pause_max_ms": 838.3,
+      "prepare_ms": 69.8,
+      "moves": 6
+    }
+  ]
+}
