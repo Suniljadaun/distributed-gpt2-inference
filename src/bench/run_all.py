@@ -29,7 +29,7 @@ from src.bench.svg import bar_chart, line_chart
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
-ALL = ["reference", "kv_cache", "split_sweep", "wire", "throughput", "load", "recovery", "rebalance"]
+ALL = ["reference", "kv_cache", "split_sweep", "wire", "throughput", "bubble", "load", "recovery", "rebalance"]
 
 
 def environment() -> dict:
@@ -54,6 +54,8 @@ def run_experiment(name: str, quick: bool):
         return ex.wire()
     if name == "throughput":
         return ex.throughput(50430)
+    if name == "bubble":
+        return ex.bubble(50440, repeats=3 if quick else 5)
     if name == "load":
         return ex.load(50450, [1.0, 3.0, 6.0], 6.0 if quick else 12.0)
     if name == "recovery":

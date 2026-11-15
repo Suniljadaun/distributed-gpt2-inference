@@ -46,6 +46,16 @@ Least-squares fit of step time vs token number: no cache **+0.428 ms per token**
 | batch 24 | 142.2 | 3.34 | True |
 | 2 x batch 12 | 147.9 | 3.21 | True |
 
+## bubble
+
+| m | makespan_ms | A_idle | B_idle | A_ms | B_ms | measured_idle | model_idle | model_measured_stages_idle |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 107.4 | 0.556 | 0.484 | 47.67 | 55.37 | 0.52 | 0.5 | 0.518 |
+| 2 | 192.8 | 0.312 | 0.346 | 66.28 | 63.29 | 0.329 | 0.333 | 0.351 |
+| 4 | 361.8 | 0.331 | 0.153 | 60.49 | 76.44 | 0.242 | 0.2 | 0.26 |
+| 8 | 680.1 | 0.238 | 0.084 | 63.79 | 77.9 | 0.161 | 0.111 | 0.18 |
+| 16 | 1281.5 | 0.18 | 0.048 | 65.11 | 76.16 | 0.114 | 0.059 | 0.122 |
+
 ## load
 
 | queue | rate | sent | ok | rejected | expired | goodput | p50 | p99 | L_sampled | L_little |

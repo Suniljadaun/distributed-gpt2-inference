@@ -133,8 +133,26 @@ def rebalance(data: dict, out: Path) -> None:
     _save(fig, out / "rebalance.png")
 
 
+def bubble(data: list[dict], out: Path) -> None:
+    fig, ax = plt.subplots()
+    m = [r["m"] for r in data]
+    ax.plot(m, [r["model_idle"] for r in data], "--", color=GREY, lw=1.5, label="model (p−1)/(m+p−1), equal stages")
+    ax.plot(m, [r["model_measured_stages_idle"] for r in data], ":", color="black", lw=1.5,
+            label="model with measured stage times + overhead")
+    ax.plot(m, [r["measured_idle"] for r in data], "o-", color=RED, lw=2, label="measured, mean of both stages")
+    ax.plot(m, [r["A_idle"] for r in data], "^", color=BLUE, ms=6, label="measured, stage A (faster)")
+    ax.plot(m, [r["B_idle"] for r in data], "v", color=GREEN, ms=6, label="measured, stage B (slower)")
+    ax.set_xscale("log", base=2)
+    ax.set_xticks(m, [str(x) for x in m])
+    ax.set(title="Pipeline bubble: stage idle time for a burst of m micro-batches (p = 2)",
+           xlabel="micro-batches in the burst (m)", ylabel="idle fraction")
+    ax.set_ylim(0, 0.65)
+    ax.legend(fontsize=8)
+    _save(fig, out / "bubble.png")
+
+
 DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
-        "wire": wire, "rebalance": rebalance}
+        "wire": wire, "rebalance": rebalance, "bubble": bubble}
 FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
 
 

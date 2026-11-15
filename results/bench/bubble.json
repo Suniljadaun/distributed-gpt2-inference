@@ -1,0 +1,71 @@
+{
+  "environment": {
+    "date": "2026-11-15T00:03:39",
+    "git_commit": "6e1def4",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 16.6,
+  "data": [
+    {
+      "m": 1,
+      "makespan_ms": 107.4,
+      "A_idle": 0.556,
+      "B_idle": 0.484,
+      "A_ms": 47.67,
+      "B_ms": 55.37,
+      "measured_idle": 0.52,
+      "model_idle": 0.5,
+      "model_measured_stages_idle": 0.518
+    },
+    {
+      "m": 2,
+      "makespan_ms": 192.8,
+      "A_idle": 0.312,
+      "B_idle": 0.346,
+      "A_ms": 66.28,
+      "B_ms": 63.29,
+      "measured_idle": 0.329,
+      "model_idle": 0.333,
+      "model_measured_stages_idle": 0.351
+    },
+    {
+      "m": 4,
+      "makespan_ms": 361.8,
+      "A_idle": 0.331,
+      "B_idle": 0.153,
+      "A_ms": 60.49,
+      "B_ms": 76.44,
+      "measured_idle": 0.242,
+      "model_idle": 0.2,
+      "model_measured_stages_idle": 0.26
+    },
+    {
+      "m": 8,
+      "makespan_ms": 680.1,
+      "A_idle": 0.238,
+      "B_idle": 0.084,
+      "A_ms": 63.79,
+      "B_ms": 77.9,
+      "measured_idle": 0.161,
+      "model_idle": 0.111,
+      "model_measured_stages_idle": 0.18
+    },
+    {
+      "m": 16,
+      "makespan_ms": 1281.5,
+      "A_idle": 0.18,
+      "B_idle": 0.048,
+      "A_ms": 65.11,
+      "B_ms": 76.16,
+      "measured_idle": 0.114,
+      "model_idle": 0.059,
+      "model_measured_stages_idle": 0.122
+    }
+  ]
+}

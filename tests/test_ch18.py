@@ -120,9 +120,20 @@ def test_matplotlib_writes_every_chart(tmp_path):
                  {"queue": "bounded 8", "rate": 6.0, "p50": 2.1, "p99": 2.7, "ok": 51, "rejected": 19, "expired": 0},
                  {"queue": "unbounded", "rate": 6.0, "p50": 2.5, "p99": 3.0, "ok": 33, "rejected": 0, "expired": 46}],
         "wire": [{"payload": "hidden, 1 token", "protobuf_ms": 0.03, "torch.save_ms": 0.5, "json_ms": 0.8}],
+        "bubble": [{"m": m, "model_idle": 1 / (m + 1), "model_measured_stages_idle": 1 / (m + 1) + 0.02,
+                    "measured_idle": 1 / (m + 1) + 0.01, "A_idle": 1 / (m + 1) + 0.05, "B_idle": 1 / (m + 1)}
+                   for m in (1, 2, 4, 8)],
         "rebalance": _timeline([46, 48, 48, 48, 48, 30, 26, 26, 26], [44, 53, 53, 53, 53, 30, 38, 38, 38],
                                [10, 10, 10, 10, 10, 10.5, 35, 35, 35]),
     }
     for name, d in data.items():
         path = plots.draw(name, d, tmp_path)
         assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and path.stat().st_size > 10_000
+
+
+def test_bubble_model_is_the_textbook_formula():
+    from src.bench.experiments import bubble_model
+    assert bubble_model(1) == pytest.approx(1 / 2)                  # one item: each stage idles half the time
+    assert bubble_model(2) == pytest.approx(1 / 3)
+    assert bubble_model(8, p=4) == pytest.approx(3 / 11)
+    assert [bubble_model(m) for m in (1, 2, 4, 8)] == sorted([bubble_model(m) for m in (1, 2, 4, 8)], reverse=True)

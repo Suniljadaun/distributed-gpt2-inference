@@ -38,11 +38,11 @@ stopping service.
 | G1 Output identical to single-process inference | Done | `test_ch08.py` and every end-to-end test; `reference` experiment: 3/3 |
 | G2 Distributed KV-cache, ordering by step ids | Done | `src/worker/server.py` (`RequestState`); `test_ch09.py`; `kv_cache` experiment |
 | G3 Bounded queue, timeouts, retries with backoff | Done | `src/coordinator/scheduler.py`, `pipeline.py`; `test_ch10.py`; `load` experiment |
-| G4 Micro-batching, pipeline bubble | Done (continuous batching); the bubble model is compared with measured throughput, not measured idle time | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` experiment |
+| G4 Micro-batching, pipeline bubble | Done (continuous batching); stage idle time measured against the bubble model | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` and `bubble` experiments |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call but not written to the token log | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-95 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+96 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -235,6 +235,31 @@ batch of 24 by filling the pipeline bubble.
 *Figure 6. Throughput for each batching configuration (speed-up over one at a time in brackets); every output
 matched the reference.*
 
+**Pipeline bubble.** To compare with the bubble model directly, m independent micro-batches (32-token prefills) are
+sent through the pipeline at once, with each worker processing one step at a time on cores of its own. The idle
+fraction of a stage is 1 − (time it spent computing) / (time from the first send to the last reply); medians of
+5 bursts:
+
+| m | stage A idle | stage B idle | measured (mean) | model (p−1)/(m+p−1) | model with measured stage times |
+|---|---|---|---|---|---|
+| 1 | 0.56 | 0.48 | 0.52 | 0.50 | 0.52 |
+| 2 | 0.31 | 0.35 | 0.33 | 0.33 | 0.35 |
+| 4 | 0.33 | 0.15 | 0.24 | 0.20 | 0.26 |
+| 8 | 0.24 | 0.08 | 0.16 | 0.11 | 0.18 |
+| 16 | 0.18 | 0.05 | 0.11 | 0.06 | 0.12 |
+
+For m = 1 and 2 the measurement matches the formula. For larger bursts the idle time falls more slowly than the
+formula predicts, and almost all of the difference is stage A: B is the slower stage (≈ 77 vs 64 ms per item), so
+once the bubble is small, A waits for B in every step. The formula assumes equal stages; the same reasoning with the
+measured stage times and the ≈ 4 ms per-step overhead (fill + drain, then one item per bottleneck-stage time)
+predicts the measurement within 0.02 at every m. The pipeline bubble shrinks as the model says, and what remains is
+imbalance between the stages, which is the problem rebalancing (§5.6) addresses.
+
+![Pipeline bubble](../results/charts/bubble.png)
+
+*Figure 7. Idle fraction for a burst of m micro-batches: measured per stage and on average, the textbook model,
+and the model with the measured stage times.*
+
 ### 5.5 Recovery (G5)
 | heartbeat | crash detect | restart | hang detect | 100-token request | same, worker B killed | replays | identical |
 |---|---|---|---|---|---|---|---|
@@ -268,7 +293,7 @@ layers move back to the original 4/2 layout and throughput recovers.
 
 ![Rebalancing](../results/charts/rebalance.png)
 
-*Figure 7. Throughput over time (4 s buckets), static 3/3 split vs dynamic rebalancing. Shaded: worker A slowed.*
+*Figure 8. Throughput over time (4 s buckets), static 3/3 split vs dynamic rebalancing. Shaded: worker A slowed.*
 
 ### 5.7 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.
@@ -295,4 +320,3 @@ recovered from the log too. Token logging currently works with the slot schedule
 batching. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
 GPT-2, which the design supports but which were not measured.
 
-*(If the course requires it, add a statement on the use of AI assistance here.)*

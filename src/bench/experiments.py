@@ -59,6 +59,69 @@ def split_sweep(base_port: int) -> list[dict]:
     return out
 
 
+def bubble_model(m: int, p: int = 2) -> float:
+    """Textbook pipeline bubble: idle fraction of p equal stages processing a burst of m micro-batches."""
+    return (p - 1) / (m + p - 1)
+
+
+def bubble(base_port: int, sizes=(1, 2, 4, 8, 16), repeats: int = 5, prompt_len: int = 32) -> list[dict]:
+    """Ch 18 (G4): measured idle time of each stage for a burst of m independent micro-batches (prefills),
+    vs the bubble model. Each worker is a true stage (--serial: one step at a time) on cores of its own.
+    Idle fraction of a stage = 1 - (time it spent computing) / (burst duration, first send to last reply)."""
+    prompt = (PROMPT * (prompt_len // len(PROMPT) + 1))[:prompt_len]
+    a, b = two_stage_layout(base_port=base_port)
+    layout = [WorkerSpec(a.worker_id, a.port, a.first, a.last, embed=True,
+                         extra_args=("--serial", "--threads", "2", "--cpus", "0,1")),
+              WorkerSpec(b.worker_id, b.port, b.first, b.last, head=True,
+                         extra_args=("--serial", "--threads", "2", "--cpus", "2,3"))]
+    out = []
+    with running_cluster(layout) as pipe:
+        for k in range(3):                                          # warm-up
+            pipe.step(f"warm-{k}", 0, prompt, 0)
+            pipe.release(f"warm-{k}")
+        single = None
+        for m in sizes:
+            runs = []
+            for r in range(repeats):
+                rids = [f"bubble-{m}-{r}-{i}" for i in range(m)]
+                timings = [None] * m
+                gate = threading.Barrier(m + 1)
+
+                def one(i: int) -> None:
+                    gate.wait()
+                    timings[i] = pipe.step(rids[i], 0, prompt, 0)[1]
+
+                threads = [threading.Thread(target=one, args=(i,)) for i in range(m)]
+                for t in threads:
+                    t.start()
+                gate.wait()
+                start = time.perf_counter()
+                for t in threads:
+                    t.join()
+                makespan = (time.perf_counter() - start) * 1000
+                for rid in rids:
+                    pipe.release(rid)
+                busy = [sum(t.compute_ms[k] for t in timings) for k in range(2)]
+                runs.append({"makespan_ms": makespan, "idle": [1 - x / makespan for x in busy],
+                             "stage_ms": [x / m for x in busy],
+                             "overhead_ms": statistics.median(t.overhead_ms for t in timings)})
+            med = lambda f: statistics.median(f(x) for x in runs)
+            row = {"m": m, "makespan_ms": round(med(lambda x: x["makespan_ms"]), 1),
+                   "A_idle": round(med(lambda x: x["idle"][0]), 3), "B_idle": round(med(lambda x: x["idle"][1]), 3),
+                   "A_ms": round(med(lambda x: x["stage_ms"][0]), 2), "B_ms": round(med(lambda x: x["stage_ms"][1]), 2)}
+            row["measured_idle"] = round((row["A_idle"] + row["B_idle"]) / 2, 3)
+            row["model_idle"] = round(bubble_model(m), 3)
+            if single is None:                                      # m = 1: the per-step network/RPC overhead
+                single = med(lambda x: x["overhead_ms"])
+            # the same reasoning with THIS burst's stage times (they grow with m: queued requests are deserialised
+            # on the stage's own cores) and the overhead: fill + drain, then one item per bottleneck-stage time
+            t_a, t_b = row["A_ms"], row["B_ms"]
+            predicted = t_a + t_b + single + (m - 1) * max(t_a, t_b)
+            row["model_measured_stages_idle"] = round(1 - m * (t_a + t_b) / 2 / predicted, 3)
+            out.append(row)
+    return out
+
+
 def wire() -> list[dict]:
     """Ch 7: bytes on the wire and encode+decode time per payload, protobuf vs torch.save vs JSON."""
     from playground.ch07.serialize_cost import PAYLOADS, time_it, via_json, via_proto, via_torch_save
