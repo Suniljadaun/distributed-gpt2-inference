@@ -10,6 +10,8 @@ If anything fails before the receiver commits, both sides abort and the old layo
 The monitor (start()) models each stage as  time = fixed + blocks x time-per-block,  measured from
 recent decode steps, predicts the slowest stage after every possible one-layer move, and makes
 the best move only if it lowers that bottleneck by more than `margin`.
+policy="threshold" is the rule in the scope report, kept for comparison: when one stage is more than
+`threshold` times slower than its neighbour, move a layer from it to the neighbour (no model of the move).
 """
 import statistics
 import threading
@@ -52,9 +54,13 @@ class StageModel:
 class Rebalancer:
     def __init__(self, pipe: Pipeline, n_layer: int = 6, supervisor=None, period_s: float = 1.0,
                  window_s: float = 3.0, margin: float = 0.05, cooldown_s: float = 3.0, min_samples: int = 15,
-                 undo_margin: float = 0.10, log=None) -> None:
-        """log = a TokenLog: every committed layout (and the one at start) is recorded in it."""
+                 undo_margin: float = 0.10, log=None, policy: str = "model", threshold: float = 1.25) -> None:
+        """log = a TokenLog: every committed layout (and the one at start) is recorded in it.
+        policy = "model" (predict the bottleneck after each possible move) or "threshold" (imbalance ratio)."""
+        if policy not in ("model", "threshold"):
+            raise ValueError("policy must be 'model' or 'threshold'")
         self.pipe, self.n_layer, self.supervisor, self.log = pipe, n_layer, supervisor, log
+        self.policy, self.threshold = policy, threshold
         self.period_s, self.window_s, self.margin = period_s, window_s, margin
         self.undo_margin = undo_margin                             # Ch 18: higher bar for reversing the last move
         self.cooldown_s, self.min_samples = cooldown_s, min_samples
@@ -192,6 +198,19 @@ class Rebalancer:
                     best = (max(after), src, dst)
         return best
 
+    def threshold_move(self, m: StageModel) -> tuple[float, int, int] | None:
+        """The scope report's rule: between neighbours k and k+1, if one stage takes more than `threshold` times
+        as long as the other, move a layer from the slower to the faster (the most imbalanced pair first).
+        Returns (ratio, src, dst). No prediction: it does not know whether the move helps the bottleneck."""
+        best = None
+        sizes = [last - first for first, last in self.layout]
+        for k in range(len(self.layout) - 1):
+            slow, fast = (k, k + 1) if m.stage_ms[k] >= m.stage_ms[k + 1] else (k + 1, k)
+            ratio = m.stage_ms[slow] / max(m.stage_ms[fast], 1e-9)
+            if ratio > self.threshold and sizes[slow] > 1 and (best is None or ratio > best[0]):
+                best = (ratio, slow, fast)
+        return best
+
     def _undoes_last_move(self, src: int, dst: int) -> bool:
         """Ch 18: hysteresis. Two moves that each predict ~5-7% are inside the noise; without a higher bar
         for going BACK, the demo rehearsal moved layer 4 back and forth four times in 12 s."""
@@ -208,13 +227,14 @@ class Rebalancer:
             m = self.model()
             if m is None:
                 continue
-            best = self.best_move(m)
+            best = self.best_move(m) if self.policy == "model" else self.threshold_move(m)
             if best is None:
                 continue
-            predicted, src, dst = best
+            value, src, dst = best
+            why = (f"should cut the bottleneck {m.bottleneck_ms:.1f} -> {value:.1f} ms" if self.policy == "model"
+                   else f"imbalance {value:.2f} > {self.threshold}")
             self._event(f"stage ms {[round(x, 1) for x in m.stage_ms]}, per block "
-                        f"{[round(x, 1) for x in m.per_block_ms]}: moving a layer {src} -> {dst} "
-                        f"should cut the bottleneck {m.bottleneck_ms:.1f} -> {predicted:.1f} ms")
+                        f"{[round(x, 1) for x in m.per_block_ms]}: moving a layer {src} -> {dst}: {why}")
             try:
                 self.move(src, dst)
             except (grpc.RpcError, ValueError) as e:

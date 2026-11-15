@@ -115,8 +115,11 @@ def rebalance(data: dict, out: Path) -> None:
     static, dynamic = data["timeline"]["static"], data["timeline"]["dynamic"]
     an = stats.rebalance_analysis(data)
     fig, ax = plt.subplots()
-    for name, tl, colour in (("static 3/3", static, BLUE), ("dynamic (rebalancer)", dynamic, RED)):
-        ax.plot([p["t"] for p in tl], [p["tokens_per_s"] for p in tl], "o-", color=colour, ms=4, label=name)
+    lines = [("static 3/3", static, BLUE, "o-"), ("rebalancer: model", dynamic, RED, "o-")]
+    if "threshold" in data["timeline"]:
+        lines.append(("rebalancer: threshold 1.25", data["timeline"]["threshold"], GREEN, "s--"))
+    for name, tl, colour, style in lines:
+        ax.plot([p["t"] for p in tl], [p["tokens_per_s"] for p in tl], style, color=colour, ms=4, label=name)
     if an["slow_start_t"] is not None:
         start = an["slow_start_t"] - an["bucket_s"]
         ax.axvspan(start, static[-1]["t"] + an["bucket_s"], color="#fde68a", alpha=0.45, lw=0)
@@ -124,11 +127,11 @@ def rebalance(data: dict, out: Path) -> None:
     for key, label in (("steady", "steady"), ("slowed", "A slowed")):
         if key in an:
             g = an[key]
-            print_ci = f"{label}: {g['gain'] * 100:+.0f}% (95% CI {g['ci'][0] * 100:+.0f}…{g['ci'][1] * 100:+.0f}%)"
+            print_ci = f"model, {label}: {g['gain'] * 100:+.0f}% (95% CI {g['ci'][0] * 100:+.0f}…{g['ci'][1] * 100:+.0f}%)"
             ax.annotate(print_ci, xy=(0.99, 0.97 if key == "steady" else 0.89), xycoords="axes fraction",
                         ha="right", va="top", fontsize=8.5)
     ax.set(title="Throughput over time, 4 requests in flight (4 s buckets)", xlabel="seconds", ylabel="tokens/s")
-    ax.set_ylim(0, max(p["tokens_per_s"] for p in static + dynamic) * 1.3)
+    ax.set_ylim(0, max(p["tokens_per_s"] for _, tl, _, _ in lines for p in tl) * 1.3)
     ax.legend(loc="lower left")
     _save(fig, out / "rebalance.png")
 

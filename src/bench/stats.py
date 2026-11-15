@@ -53,10 +53,10 @@ def slow_start(timeline: list[dict], factor: float = 1.8) -> int | None:
     return None
 
 
-def rebalance_analysis(data: dict) -> dict:
-    """Static vs dynamic throughput, before and after the slowdown, with CIs.
-    Bucket 0 (warm-up, first move) and the bucket in which the slowdown starts are left out."""
-    static, dynamic = data["timeline"]["static"], data["timeline"]["dynamic"]
+def rebalance_analysis(data: dict, policy: str = "dynamic") -> dict:
+    """Static vs a rebalancing policy ("dynamic" = the model, or "threshold"), before and after the slowdown,
+    with CIs. Bucket 0 (warm-up, first move) and the bucket in which the slowdown starts are left out."""
+    static, dynamic = data["timeline"]["static"], data["timeline"][policy]
     slow = slow_start(static)
     bucket = static[1]["t"] - static[0]["t"]
     steady = [i for i, p in enumerate(static) if p["t"] > 0 and (slow is None or p["t"] + bucket <= slow - bucket)]

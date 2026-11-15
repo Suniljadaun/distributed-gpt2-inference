@@ -219,15 +219,17 @@ def recovery(base_port: int) -> dict:
 
 
 def rebalance(quick: bool) -> dict:
-    """Ch 15: tokens/s over time, static split vs dynamic rebalancing, with worker A slowing down."""
+    """Ch 15: tokens/s over time with worker A slowing down: static split, the model policy ("dynamic") and
+    the scope report's imbalance-threshold policy ("threshold")."""
     import playground.ch15.rebalance_demo as demo
     if quick:
         demo.RUN_S, demo.SLOW_AT_S = 32, 12
-    rows = {name: demo.run(flag, port) for name, flag, port in
-            (("static", False, 50341), ("dynamic", True, 50345))}
+    runs = {name: demo.run(policy, port) for name, policy, port in
+            (("static", None, 50341), ("dynamic", "model", 50345), ("threshold", "threshold", 50348))}
     return {"slow_at_s": demo.SLOW_AT_S,
-            "timeline": {name: [{"t": t, "tokens_per_s": round(r, 1), "detail": info} for t, r, info in data]
-                         for name, data in rows.items()}}
+            "timeline": {name: [{"t": t, "tokens_per_s": round(r, 1), "detail": info} for t, r, info in rows]
+                         for name, (rows, _) in runs.items()},
+            "moves": {name: [{"t": t, "event": text} for t, text in moves] for name, (_, moves) in runs.items()}}
 
 
 def reference_check(base_port: int) -> dict:

@@ -28,7 +28,7 @@ stopping service.
 - Continuous batching: **39.0 → 147.9 tokens/s** (3.8×) with identical outputs.
 - Worker crash: detected in **0.25 s**, restarted in **2.6 s**. The interrupted request completes with **identical
   output**; replaying 100 tokens takes **95 ms** vs 2.7 s to regenerate.
-- Dynamic rebalancing vs a static even split: about **+10%** at steady state and **+40%** when one worker is slowed
+- Dynamic rebalancing vs a static even split: **+17%** at steady state and **+45%** when one worker is slowed
   down.
 
 ## 2. Goals and status
@@ -40,9 +40,9 @@ stopping service.
 | G3 Bounded queue, timeouts, retries with backoff | Done | `src/coordinator/scheduler.py`, `pipeline.py`; `test_ch10.py`; `load` experiment |
 | G4 Micro-batching, pipeline bubble | Done (continuous batching); stage idle time measured against the bubble model | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` and `bubble` experiments |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
-| G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
+| G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-99 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+101 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -136,8 +136,10 @@ KV-cache slices for all active requests. (4) `CommitLayout` on the **receiver fi
 After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 6–30 ms.
 
 **Rejected designs** (all implemented and measured):
-- *Ratio thermostat* (move when A/B time ratio exceeds a threshold): overshot to a 5/1 split and oscillated, because
-  B's output layer is a fixed cost that does not move with layers.
+- *Imbalance threshold* (the rule in the scope report: move a layer off the slower stage when slow/fast > 1.25). It is
+  still available (`policy="threshold"`) and is compared with the model in §5.6. It reaches a similar throughput but
+  never settles: B's output layer is a fixed cost that does not move with layers, so the 4/2 and 5/1 splits both
+  look imbalanced, and it moves a layer back and forth between them.
 - *Workers sharing all CPU cores:* no gain, since moving work to B slowed B down by the same amount. Rebalancing only
   helps with separate resources, so workers are pinned to their own cores (`--cpus`).
 - *Concurrent requests inside a stage:* stage times became too noisy to act on (15 flapping moves). Stages process one
@@ -281,22 +283,39 @@ A crash costs the request ~2.8 s, almost all of it the restart (process start + 
 Each worker on its own cores, 4 requests in flight, 48 s run, throughput measured in 4 s buckets. At t ≈ 29 s worker
 A is slowed by 8 ms per block.
 
-| period | static 3/3 (tok/s) | dynamic (tok/s) | gain (95% CI) | dynamic layout |
+| period | static 3/3 (tok/s) | model policy (tok/s) | gain (95% CI) | layout |
 |---|---|---|---|---|
-| steady (t = 4–24 s, 6 buckets) | 47.5 | 53.4 | +12% (+10 … +15%) | 4/2 |
-| A slowed (t = 36–44 s, 3 buckets) | 26.5 | 37.8 | +43% (+41 … +44%) | 2/4, then 1/5 |
+| steady (t = 4–24 s, 6 buckets) | 44.9 | 52.8 | +17% (+14 … +21%) | 4/2 |
+| A slowed (t = 36–44 s, 3 buckets) | 26.1 | 37.8 | +45% (+41 … +50%) | 2/4, then 1/5 |
 
 The intervals (bootstrap over the 4 s buckets) cover variation within this run only; across separate runs the gains
-were +7 to +19% (steady) and +31 to +43% (slowed).
+were +7 to +19% (steady) and +31 to +45% (slowed).
 
 The rebalancer moved one layer to A at start-up (B carries the output layer), then three layers to B after the
 slowdown, one per cooldown. Each predicted bottleneck time was confirmed by the next measurement within ~1 ms
-(e.g. predicted 34.8 ms, measured 35.9 ms; predicted 24.1 ms, measured 24.0 ms). When the slowdown is removed, the
+(e.g. predicted 35.1 ms, measured 36.0 ms; predicted 23.8 ms, measured 24.3 ms). When the slowdown is removed, the
 layers move back to the original 4/2 layout and throughput recovers.
+
+**Model vs imbalance threshold.** The same run with the scope report's rule (move a layer off the slower stage when
+it takes more than 1.25× as long as its neighbour), measured right after the other two:
+
+| | steady: gain vs static | steady: moves | A slowed: gain vs static | A slowed: moves | final layout |
+|---|---|---|---|---|---|
+| model policy | +17% (+14 … +21%) | 1 | +45% (+41 … +50%) | 3 | 1/5 |
+| threshold 1.25 | +16% (+13 … +19%) | 7 | +50% (+46 … +53%) | 2 | 2/4 |
+
+In throughput the two are close, so the claim is not that the threshold is slower. The difference is stability. With
+B's fixed output-layer cost, 4/2 (A 13.6, B 16.9 ms: ratio 1.24–1.27) and 5/1 (A 17.6, B 12.8 ms: ratio 1.37) are both
+"imbalanced". The threshold rule moved layer 4 back and forth between them six times in about 22 s, pausing every request
+for 9–28 ms each time. The model predicted that 5/1 would make A the bottleneck and did not move. After the
+slowdown, the threshold rule stopped at 2/4, because 24.0 / 20.2 ms is below 1.25. The model made one more move, to
+1/5, predicting a bottleneck of 23.2 instead of 24.5 ms; measured, B became the bottleneck at 24.0 ms, a 2% cut
+rather than 5%, which is within the noise of the throughput figures.
 
 ![Rebalancing](../results/charts/rebalance.png)
 
-*Figure 8. Throughput over time (4 s buckets), static 3/3 split vs dynamic rebalancing. Shaded: worker A slowed.*
+*Figure 8. Throughput over time (4 s buckets): static 3/3 split, the model policy and the imbalance threshold.
+Shaded: worker A slowed.*
 
 ### 5.7 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.
@@ -314,8 +333,9 @@ The engine implements all six goals of the scope report, and its outputs are ide
 throughout. The main lessons:
 - **Write-ahead logging turns worker state into a cache.** Losing it costs a replay (~0.1 s), not the request.
 - **Fencing by generation and epoch** is what makes restarts and layer moves safe while old messages are still in flight.
-- **Rebalancing needs a model, not a threshold.** It also needs isolated resources and quiet measurements to
-  work at all.
+- **Rebalancing works best with a model of what a move does.** A plain imbalance threshold gained as much
+  throughput here, but kept moving a layer back and forth; predicting the bottleneck lets the rebalancer settle. Both
+  need isolated resources and quiet measurements to work at all.
 
 **Next steps.** The coordinator is still a single point of failure: its log is local, so the next step is to
 replicate it (e.g. with Raft). Layer moves need workers that the coordinator starts itself: workers that outlive a

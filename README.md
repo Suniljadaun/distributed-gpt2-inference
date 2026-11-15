@@ -18,7 +18,7 @@ The design, the measurements and the discussion are in **[report/Final_Report.pd
 | KV-cache | 12.3 → 43.8 tokens/s (200-token generations) |
 | Continuous batching | 39.0 → 147.9 tokens/s (3.8×) |
 | Worker crash | detected in 0.25 s, restarted in 2.6 s, request finishes with identical output |
-| Dynamic rebalancing vs static split | about +10% steady, +40% with one slow worker |
+| Dynamic rebalancing vs static split | +17% steady, +45% with one slow worker |
 
 ## Requirements
 
@@ -49,7 +49,7 @@ After that, `HF_HUB_OFFLINE=1` (PowerShell: `$env:HF_HUB_OFFLINE=1`) skips the o
 
 ## Run
 
-### Tests (99, about 3 minutes)
+### Tests (101, about 3 minutes)
 ```bash
 python -m pytest -q
 ```
@@ -108,7 +108,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on every push:
-- **test**: installs everything on Ubuntu with Python 3.14, runs the 99 tests and a short benchmark (charts kept as
+- **test**: installs everything on Ubuntu with Python 3.14, runs the 101 tests and a short benchmark (charts kept as
   a downloadable artifact);
 - **compose**: builds the image, starts the three containers and runs `playground/ch17/compose_check.py`.
 
@@ -122,7 +122,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 | `src/coordinator/` | pipeline client, schedulers, coordinator server, supervisor, remote health checks, token log, replay, rebalancer |
 | `src/bench/` | experiments (including the pipeline-bubble measurement), `run_all`, NumPy analysis, Matplotlib and SVG charts |
 | `src/client.py` | command-line client |
-| `tests/` | 99 tests (`test_chNN.py`, one file per stage of the build) |
+| `tests/` | 101 tests (`test_chNN.py`, one file per stage of the build) |
 | `playground/` | small experiments used while building; `ch18/demo.py` is the live demo, `ch17/compose_check.py` the container check |
 | `results/` | `reference.json` (single-process outputs for the correctness tests), benchmark data, charts, `summary.md` |
 | `report/` | the final report (Markdown source, PDF, figure, build script) and the scope report |

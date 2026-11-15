@@ -5,6 +5,8 @@ Each "machine" gets its own CPU cores: worker A cores 0-1, worker B cores 2-3, t
 Workers compute one step at a time (--serial): a pipeline stage is a single server.
 Both start with layers 0-2 | 3-5. Some seconds in, worker A gets slower (+8 ms per block, a noisy
 neighbour). With the rebalancer, layers move to whoever is faster; without it, the split stays.
+policy: None = static split, "model" = predict the bottleneck (the engine's), "threshold" = the scope report's
+imbalance-ratio rule, for comparison.
 Run:  python -m playground.ch15.rebalance_demo            (about 2.5 minutes)
 """
 import statistics
@@ -26,7 +28,8 @@ SLOTS, CLIENTS = 4, 8              # enough requests in flight to keep both stag
 DELAY_MS = 8                       # how much slower each block on A becomes
 
 
-def run(rebalance: bool, base_port: int) -> list[tuple[int, float, str]]:
+def run(policy: str | None, base_port: int) -> tuple[list[tuple[int, float, str]], list[tuple[float, str]]]:
+    """Returns the timeline (t, tokens/s, detail) and the rebalancer's moves (t, text)."""
     a, b = two_stage_layout(base_port=base_port)
     common = ("--threads", "2", "--serial")
     layout = [WorkerSpec(a.worker_id, a.port, a.first, a.last, embed=True,
@@ -35,7 +38,8 @@ def run(rebalance: bool, base_port: int) -> list[tuple[int, float, str]]:
               WorkerSpec(b.worker_id, b.port, b.first, b.last, head=True, extra_args=common + ("--cpus", "2,3"))]
     rows = []
     with running_cluster(layout) as pipe:
-        reb = Rebalancer(pipe, period_s=1.0, window_s=3.0, cooldown_s=3.0, min_samples=15)
+        reb = Rebalancer(pipe, period_s=1.0, window_s=3.0, cooldown_s=3.0, min_samples=15,
+                         policy=policy or "model")
         server, scheduler = start_coordinator(pipe, base_port + 2, queue_size=64, slots=SLOTS)
         channel = grpc.insecure_channel(f"127.0.0.1:{base_port + 2}")
         stub = pb_grpc.CoordinatorStub(channel)
@@ -52,7 +56,7 @@ def run(rebalance: bool, base_port: int) -> list[tuple[int, float, str]]:
         threads = [threading.Thread(target=client, args=(c,)) for c in range(CLIENTS)]
         for t in threads:
             t.start()
-        if rebalance:
+        if policy is not None:
             reb.start()
         for bucket in range(RUN_S // BUCKET_S):
             time.sleep(max(0.0, t0 + (bucket + 1) * BUCKET_S - time.monotonic()))
@@ -69,15 +73,16 @@ def run(rebalance: bool, base_port: int) -> list[tuple[int, float, str]]:
         channel.close()
         server.stop(grace=None)
         scheduler.stop()
-    return rows
+    moves = [(round(t - t0, 1), text) for t, text in reb.events if text.startswith("moved layer")]
+    return rows, moves
 
 
 def main() -> None:
     pin_to_cpus([4, 5])                                        # the coordinator and its clients
     results = {}
-    for name, rebalance, port in [("static split", False, 50341), ("dynamic rebalancing", True, 50345)]:
+    for name, policy, port in [("static split", None, 50341), ("dynamic rebalancing", "model", 50345)]:
         print(f"\n=== {name} ===", flush=True)
-        results[name] = run(rebalance, port)
+        results[name], _ = run(policy, port)
     print(f"\nA becomes slower (+{DELAY_MS} ms per block) at about t = {SLOW_AT_S} s\n")
     print(f"{'t (s)':>6} | {'static tok/s':>12}  {'':<30} | {'dynamic tok/s':>13}  {''}")
     for (t, s_rate, s_info), (_, d_rate, d_info) in zip(results["static split"], results["dynamic rebalancing"]):

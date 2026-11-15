@@ -101,10 +101,17 @@ def analysis(name: str, data) -> str:
             f"{k} **{f['slope']:+.3f} ms per token** (R² {f['r2']:.2f})" for k, f in fits.items()) + "."
     if name == "rebalance":
         an = stats.rebalance_analysis(data)
-        lines = [f"Worker A is clearly slow from the t = {an['slow_start_t']} bucket. Dynamic vs static:",
-                 f"- steady: {_pct(an['steady'])}"]
-        if "slowed" in an:
-            lines.append(f"- A slowed: {_pct(an['slowed'])}")
+        lines = [f"Worker A is clearly slow from the t = {an['slow_start_t']} bucket."]
+        for policy in [p for p in ("dynamic", "threshold") if p in data["timeline"]]:
+            an = stats.rebalance_analysis(data, policy)
+            lines += [f"{'Model' if policy == 'dynamic' else 'Threshold'} policy vs static:",
+                      f"- steady: {_pct(an['steady'])}"]
+            if "slowed" in an:
+                lines.append(f"- A slowed: {_pct(an['slowed'])}")
+        for policy, moves in data.get("moves", {}).items():
+            if moves:
+                lines.append(f"Moves ({policy}): " + "; ".join(f"t={m['t']} s {m['event'].split(':')[0]}"
+                                                               for m in moves))
         return "\n".join(lines)
     return ""
 
@@ -129,9 +136,12 @@ def summary_section(name: str, data) -> str:
         return table([rest]) + "\n\n" + replay
     if name == "rebalance":
         static, dynamic = data["timeline"]["static"], data["timeline"]["dynamic"]
+        threshold = data["timeline"].get("threshold", [{}] * len(static))
         return table([{"t": s["t"], "static tok/s": s["tokens_per_s"], "static": s["detail"].replace("|", "/"),
-                       "dynamic tok/s": d["tokens_per_s"], "dynamic": d["detail"].replace("|", "/")}
-                      for s, d in zip(static, dynamic)])
+                       "model tok/s": d["tokens_per_s"], "model": d["detail"].replace("|", "/"),
+                       "threshold tok/s": h.get("tokens_per_s", ""),
+                       "threshold": h.get("detail", "").replace("|", "/")}
+                      for s, d, h in zip(static, dynamic, threshold)])
     return table(data)
 
 

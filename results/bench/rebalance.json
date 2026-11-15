@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-11-14T20:29:02",
-    "git_commit": "a2035fc",
+    "date": "2026-11-15T11:33:04",
+    "git_commit": "471cde3",
     "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
     "logical_cpus": 12,
     "os": "Windows-11-10.0.26200-SP0",
@@ -10,132 +10,253 @@
     "grpc": "1.84.0"
   },
   "quick": false,
-  "seconds": 112.9,
+  "seconds": 168.4,
   "data": {
     "slow_at_s": 24,
     "timeline": {
       "static": [
         {
           "t": 0,
-          "tokens_per_s": 46.0,
-          "detail": "A 10.1 B 19.3 ms  0-2 | 3-5"
+          "tokens_per_s": 43.0,
+          "detail": "A 10.9 B 20.7 ms  0-2 | 3-5"
         },
         {
           "t": 4,
-          "tokens_per_s": 47.2,
-          "detail": "A 10.0 B 19.1 ms  0-2 | 3-5"
+          "tokens_per_s": 44.5,
+          "detail": "A 10.8 B 20.7 ms  0-2 | 3-5"
         },
         {
           "t": 8,
-          "tokens_per_s": 49.8,
-          "detail": "A 10.0 B 19.1 ms  0-2 | 3-5"
+          "tokens_per_s": 45.8,
+          "detail": "A 11.0 B 20.7 ms  0-2 | 3-5"
         },
         {
           "t": 12,
-          "tokens_per_s": 46.8,
-          "detail": "A 10.0 B 19.2 ms  0-2 | 3-5"
+          "tokens_per_s": 44.2,
+          "detail": "A 11.0 B 20.7 ms  0-2 | 3-5"
         },
         {
           "t": 16,
-          "tokens_per_s": 47.0,
-          "detail": "A  9.9 B 19.2 ms  0-2 | 3-5"
+          "tokens_per_s": 46.2,
+          "detail": "A 10.6 B 20.7 ms  0-2 | 3-5"
         },
         {
           "t": 20,
-          "tokens_per_s": 48.2,
-          "detail": "A  9.9 B 19.3 ms  0-2 | 3-5"
+          "tokens_per_s": 43.5,
+          "detail": "A 10.5 B 20.8 ms  0-2 | 3-5"
         },
         {
           "t": 24,
-          "tokens_per_s": 46.0,
-          "detail": "A  9.9 B 19.4 ms  0-2 | 3-5"
+          "tokens_per_s": 45.2,
+          "detail": "A 10.6 B 20.8 ms  0-2 | 3-5"
         },
         {
           "t": 28,
-          "tokens_per_s": 37.8,
-          "detail": "A 10.7 B 19.2 ms  0-2 | 3-5"
+          "tokens_per_s": 33.0,
+          "detail": "A 12.8 B 20.3 ms  0-2 | 3-5"
         },
         {
           "t": 32,
-          "tokens_per_s": 26.8,
-          "detail": "A 35.2 B 17.0 ms  0-2 | 3-5"
+          "tokens_per_s": 26.0,
+          "detail": "A 36.1 B 18.7 ms  0-2 | 3-5"
         },
         {
           "t": 36,
           "tokens_per_s": 26.2,
-          "detail": "A 35.2 B 17.1 ms  0-2 | 3-5"
+          "detail": "A 35.9 B 18.6 ms  0-2 | 3-5"
         },
         {
           "t": 40,
-          "tokens_per_s": 26.8,
-          "detail": "A 35.2 B 17.1 ms  0-2 | 3-5"
+          "tokens_per_s": 26.0,
+          "detail": "A 36.0 B 18.5 ms  0-2 | 3-5"
         },
         {
           "t": 44,
-          "tokens_per_s": 26.5,
-          "detail": "A 35.2 B 17.2 ms  0-2 | 3-5"
+          "tokens_per_s": 26.0,
+          "detail": "A 35.9 B 18.6 ms  0-2 | 3-5"
         }
       ],
       "dynamic": [
         {
           "t": 0,
-          "tokens_per_s": 43.8,
-          "detail": "A 10.4 B 19.6 ms  0-3 | 4-5"
+          "tokens_per_s": 45.0,
+          "detail": "A 11.2 B 19.3 ms  0-3 | 4-5"
         },
         {
           "t": 4,
-          "tokens_per_s": 53.0,
-          "detail": "A 14.0 B 17.3 ms  0-3 | 4-5"
+          "tokens_per_s": 51.5,
+          "detail": "A 15.5 B 17.2 ms  0-3 | 4-5"
         },
         {
           "t": 8,
-          "tokens_per_s": 53.2,
-          "detail": "A 14.0 B 17.1 ms  0-3 | 4-5"
+          "tokens_per_s": 52.8,
+          "detail": "A 15.1 B 17.1 ms  0-3 | 4-5"
         },
         {
           "t": 12,
-          "tokens_per_s": 54.2,
-          "detail": "A 13.7 B 17.1 ms  0-3 | 4-5"
+          "tokens_per_s": 53.8,
+          "detail": "A 15.2 B 17.0 ms  0-3 | 4-5"
         },
         {
           "t": 16,
-          "tokens_per_s": 54.2,
-          "detail": "A 13.5 B 17.1 ms  0-3 | 4-5"
+          "tokens_per_s": 54.8,
+          "detail": "A 15.0 B 16.9 ms  0-3 | 4-5"
         },
         {
           "t": 20,
-          "tokens_per_s": 52.8,
-          "detail": "A 13.4 B 17.1 ms  0-3 | 4-5"
+          "tokens_per_s": 53.8,
+          "detail": "A 15.2 B 16.9 ms  0-3 | 4-5"
         },
         {
           "t": 24,
-          "tokens_per_s": 53.0,
-          "detail": "A 13.5 B 17.2 ms  0-3 | 4-5"
+          "tokens_per_s": 49.8,
+          "detail": "A 15.4 B 17.2 ms  0-3 | 4-5"
         },
         {
           "t": 28,
-          "tokens_per_s": 36.8,
-          "detail": "A 14.0 B 16.9 ms  0-3 | 4-5"
+          "tokens_per_s": 36.2,
+          "detail": "A 15.3 B 16.8 ms  0-3 | 4-5"
         },
         {
           "t": 32,
-          "tokens_per_s": 23.8,
-          "detail": "A 36.1 B 18.7 ms  0-2 | 3-5"
+          "tokens_per_s": 24.2,
+          "detail": "A 36.0 B 17.5 ms  0-2 | 3-5"
         },
         {
           "t": 36,
-          "tokens_per_s": 37.8,
-          "detail": "A 24.4 B 20.9 ms  0-1 | 2-5"
+          "tokens_per_s": 37.5,
+          "detail": "A 24.3 B 20.4 ms  0-0 | 1-5"
         },
         {
           "t": 40,
-          "tokens_per_s": 37.5,
-          "detail": "A 24.4 B 20.8 ms  0-1 | 2-5"
+          "tokens_per_s": 36.8,
+          "detail": "A 11.9 B 24.0 ms  0-0 | 1-5"
         },
         {
           "t": 44,
+          "tokens_per_s": 39.0,
+          "detail": "A 11.8 B 24.0 ms  0-0 | 1-5"
+        }
+      ],
+      "threshold": [
+        {
+          "t": 0,
+          "tokens_per_s": 47.0,
+          "detail": "A 10.2 B 18.8 ms  0-3 | 4-5"
+        },
+        {
+          "t": 4,
+          "tokens_per_s": 51.2,
+          "detail": "A 14.1 B 16.3 ms  0-4 | 5-5"
+        },
+        {
+          "t": 8,
+          "tokens_per_s": 51.0,
+          "detail": "A 14.6 B 16.5 ms  0-3 | 4-5"
+        },
+        {
+          "t": 12,
+          "tokens_per_s": 52.5,
+          "detail": "A 17.4 B 13.1 ms  0-4 | 5-5"
+        },
+        {
+          "t": 16,
+          "tokens_per_s": 52.2,
+          "detail": "A 13.9 B 16.9 ms  0-3 | 4-5"
+        },
+        {
+          "t": 20,
+          "tokens_per_s": 53.8,
+          "detail": "A 13.6 B 16.9 ms  0-3 | 4-5"
+        },
+        {
+          "t": 24,
+          "tokens_per_s": 51.5,
+          "detail": "A 16.8 B 13.3 ms  0-4 | 5-5"
+        },
+        {
+          "t": 28,
+          "tokens_per_s": 32.0,
+          "detail": "A 17.8 B 14.7 ms  0-3 | 4-5"
+        },
+        {
+          "t": 32,
+          "tokens_per_s": 27.5,
+          "detail": "A 35.1 B 17.5 ms  0-1 | 2-5"
+        },
+        {
+          "t": 36,
+          "tokens_per_s": 39.8,
+          "detail": "A 24.0 B 20.4 ms  0-1 | 2-5"
+        },
+        {
+          "t": 40,
           "tokens_per_s": 38.0,
-          "detail": "A 23.5 B 20.4 ms  0-0 | 1-5"
+          "detail": "A 24.0 B 20.2 ms  0-1 | 2-5"
+        },
+        {
+          "t": 44,
+          "tokens_per_s": 39.8,
+          "detail": "A 24.0 B 20.1 ms  0-1 | 2-5"
+        }
+      ]
+    },
+    "moves": {
+      "static": [],
+      "dynamic": [
+        {
+          "t": 3.3,
+          "event": "moved layer 3 from stage 1 to stage 0: layout [(0, 4), (4, 6)], epoch 2, paused 34 ms, 4 KV slices"
+        },
+        {
+          "t": 32.9,
+          "event": "moved layer 3 from stage 0 to stage 1: layout [(0, 3), (3, 6)], epoch 3, paused 15 ms, 4 KV slices"
+        },
+        {
+          "t": 36.2,
+          "event": "moved layer 2 from stage 0 to stage 1: layout [(0, 2), (2, 6)], epoch 4, paused 11 ms, 4 KV slices"
+        },
+        {
+          "t": 39.4,
+          "event": "moved layer 1 from stage 0 to stage 1: layout [(0, 1), (1, 6)], epoch 5, paused 11 ms, 4 KV slices"
+        }
+      ],
+      "threshold": [
+        {
+          "t": 3.2,
+          "event": "moved layer 3 from stage 1 to stage 0: layout [(0, 4), (4, 6)], epoch 2, paused 10 ms, 4 KV slices"
+        },
+        {
+          "t": 6.5,
+          "event": "moved layer 4 from stage 1 to stage 0: layout [(0, 5), (5, 6)], epoch 3, paused 13 ms, 4 KV slices"
+        },
+        {
+          "t": 9.8,
+          "event": "moved layer 4 from stage 0 to stage 1: layout [(0, 4), (4, 6)], epoch 4, paused 10 ms, 4 KV slices"
+        },
+        {
+          "t": 13.2,
+          "event": "moved layer 4 from stage 1 to stage 0: layout [(0, 5), (5, 6)], epoch 5, paused 28 ms, 4 KV slices"
+        },
+        {
+          "t": 16.3,
+          "event": "moved layer 4 from stage 0 to stage 1: layout [(0, 4), (4, 6)], epoch 6, paused 9 ms, 4 KV slices"
+        },
+        {
+          "t": 25.7,
+          "event": "moved layer 4 from stage 1 to stage 0: layout [(0, 5), (5, 6)], epoch 7, paused 28 ms, 4 KV slices"
+        },
+        {
+          "t": 28.9,
+          "event": "moved layer 4 from stage 0 to stage 1: layout [(0, 4), (4, 6)], epoch 8, paused 12 ms, 4 KV slices"
+        },
+        {
+          "t": 32.2,
+          "event": "moved layer 3 from stage 0 to stage 1: layout [(0, 3), (3, 6)], epoch 9, paused 12 ms, 4 KV slices"
+        },
+        {
+          "t": 35.5,
+          "event": "moved layer 2 from stage 0 to stage 1: layout [(0, 2), (2, 6)], epoch 10, paused 7 ms, 4 KV slices"
         }
       ]
     }

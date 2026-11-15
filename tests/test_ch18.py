@@ -50,6 +50,7 @@ def _policy(layout, last_move=None) -> Rebalancer:
     """A Rebalancer's decision logic only: no workers needed for best_move()."""
     reb = Rebalancer.__new__(Rebalancer)
     reb.layout, reb.margin, reb.undo_margin = list(layout), 0.05, 0.10
+    reb.policy, reb.threshold = "model", 1.25
     reb.moves = [] if last_move is None else [MoveReport(3, *last_move, 2, 0, 0, 0, 0, tuple(layout))]
     return reb
 
@@ -204,3 +205,28 @@ def test_tokens_carry_the_epoch_they_were_computed_under_and_a_restart_reuses_th
     assert again.new_ids == entry["new_ids"][:5] and log.get("after-restart").epochs == [2] * 5
     assert log.next_lsn == len(records) + 7                         # start + 5 tokens + end; no new layout record
     log.close()
+
+
+# ---------------- G6: the scope report's imbalance-threshold policy (for comparison) ----------------
+
+def test_threshold_policy_moves_off_the_slower_stage_only_above_the_ratio():
+    reb = _policy([(0, 3), (3, 6)])
+    reb.policy = "threshold"
+    slow_b = StageModel(stage_ms=(7.0, 20.0), per_block_ms=(2.2, 3.0), fixed_ms=(0.4, 11.0))
+    assert reb.threshold_move(slow_b) == (pytest.approx(20 / 7), 1, 0)          # B is 2.9x slower: B -> A
+    close = StageModel(stage_ms=(17.0, 15.0), per_block_ms=(5.5, 1.3), fixed_ms=(0.5, 11.1))
+    assert reb.threshold_move(close) is None                                    # 1.13 < 1.25: stay
+    one_block = _policy([(0, 5), (5, 6)])
+    one_block.policy = "threshold"
+    assert one_block.threshold_move(slow_b) is None                             # B has 1 layer left: cannot give it
+
+
+def test_threshold_policy_moves_where_the_model_sees_no_gain():
+    """The scope report's rule balances the RATIO; the model minimises the BOTTLENECK. 4/2 with A at 19 ms and B at
+    14 ms: the ratio 1.36 says 'move a layer to B', but B would then take 14 + 3 = 17 ms and A 15.3 ms, a 10.5% cut...
+    unless B's blocks are slow. With B at 6 ms per block, B becomes 20 ms: the threshold still moves, the model doesn't."""
+    m = StageModel(stage_ms=(19.0, 14.0), per_block_ms=(3.7, 6.0), fixed_ms=(4.2, 2.0))
+    reb = _policy([(0, 4), (4, 6)])
+    assert reb.best_move(m) is None                                             # predicted bottleneck 20 ms > 19 ms
+    reb.policy = "threshold"
+    assert reb.threshold_move(m)[1:] == (0, 1)                                  # moves anyway, and makes it worse
