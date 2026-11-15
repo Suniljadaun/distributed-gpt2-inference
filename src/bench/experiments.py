@@ -27,10 +27,12 @@ from src.reference import REFERENCE_FILE
 PROMPT = [464, 3139, 286, 4881, 318]          # "The capital of France is"
 
 
-def kv_cache(steps: int) -> dict:
-    """Ch 9: time of every decode step, with and without the KV-cache, in one process."""
+def kv_cache(steps: int, base_port: int | None = None) -> dict:
+    """Ch 9: time of every decode step, with and without the KV-cache, in one process; with base_port, also through
+    the 2-worker pipeline. Pipeline without cache = Chapter 8's design: every step sends the WHOLE sequence (a fresh
+    request id at step 0, released afterwards), so A ships seq x 768 floats to B each time."""
     model = load_pretrained()
-    rows = {}
+    rows, wire = {}, {}
     for name, use_cache in (("no cache", False), ("KV-cache", True)):
         ids, cache, feed, times = list(PROMPT), KVCache(), list(PROMPT), []
         for _ in range(steps):
@@ -40,7 +42,23 @@ def kv_cache(steps: int) -> dict:
             ids.append(tok)
             feed = [tok]
         rows[name] = times
-    return {"step_ms": rows,
+    if base_port is not None:
+        with running_cluster(two_stage_layout(base_port=base_port)) as pipe:
+            for k in range(3):                                      # warm-up
+                generate(pipe, f"warm-{k}", PROMPT, 5)
+            ids, times = list(PROMPT), []
+            for i in range(steps):                                  # no cache: whole sequence, every step
+                tok, timing = pipe.step(f"nocache-{i}", 0, ids, 0)
+                pipe.release(f"nocache-{i}")
+                times.append(timing.total_ms)
+                ids.append(tok)
+            rows["pipeline, no cache"] = times
+            new_ids, timings = generate(pipe, "cached", PROMPT, steps)
+            assert new_ids == ids[len(PROMPT):], "pipeline with and without cache disagree"
+            rows["pipeline, KV-cache"] = [t.total_ms for t in timings]
+        hidden = 768 * 4                                            # one position's hidden state, float32
+        wire = {"no cache": (len(PROMPT) + steps - 1) * hidden, "KV-cache": hidden}   # A -> B, last step
+    return {"step_ms": rows, "a_to_b_bytes_last_step": wire,
             "tokens_per_s": {k: round(1000 * len(v) / sum(v), 1) for k, v in rows.items()}}
 
 

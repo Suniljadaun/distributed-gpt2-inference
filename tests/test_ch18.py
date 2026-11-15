@@ -266,3 +266,14 @@ def test_latency_percentiles_split_first_token_from_the_rest():
     row = _percentiles([100.0, 120.0], [20.0] * 98 + [50.0, 60.0])
     assert row["ttft_p50_ms"] == pytest.approx(110) and row["itl_p50_ms"] == 20
     assert 20 < row["itl_p99_ms"] <= 60 and row["samples"] == 100
+
+
+# ---------------- baseline: the pipeline without a KV-cache ----------------
+
+def test_pipeline_without_cache_matches_with_cache_and_is_slower():
+    from src.bench.experiments import kv_cache
+    data = kv_cache(25, base_port=50651)
+    ms = data["step_ms"]
+    assert set(ms) == {"no cache", "KV-cache", "pipeline, no cache", "pipeline, KV-cache"}
+    assert all(len(v) == 25 for v in ms.values())                   # (the experiment asserts equal tokens itself)
+    assert data["a_to_b_bytes_last_step"] == {"no cache": 29 * 3072, "KV-cache": 3072}

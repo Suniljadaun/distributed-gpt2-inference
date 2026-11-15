@@ -48,7 +48,7 @@ def run_experiment(name: str, quick: bool):
     if name == "reference":
         return ex.reference_check(50401)
     if name == "kv_cache":
-        return ex.kv_cache(60 if quick else 200)
+        return ex.kv_cache(60 if quick else 200, base_port=50490)
     if name == "split_sweep":
         return ex.split_sweep(50410)
     if name == "wire":
@@ -72,7 +72,7 @@ def run_experiment(name: str, quick: bool):
 
 def charts(name: str, data, out: Path) -> None:
     if name == "kv_cache":
-        line_chart(out / "kv_cache.svg", "Decode step time: no cache vs KV-cache (1 process)", "token number",
+        line_chart(out / "kv_cache.svg", "Decode step time: no cache vs KV-cache", "token number",
                    "ms per step", {k: list(enumerate(v, 1)) for k, v in data["step_ms"].items()})
     elif name == "split_sweep":
         bar_chart(out / "split_sweep.svg", "Per-stage compute per decode step, by split (A layers / B layers)",
@@ -101,8 +101,8 @@ def _pct(g: dict) -> str:
 def analysis(name: str, data) -> str:
     """Ch 18: NumPy analysis lines under the table (empty if there is nothing to add)."""
     if name == "kv_cache":
-        fits = {k: stats.growth(v) for k, v in data["step_ms"].items()}
-        return "Least-squares fit of step time vs token number: " + "; ".join(
+        fits = {k: stats.growth(v[1:]) for k, v in data["step_ms"].items()}         # step 1 (prefill) left out
+        return "Least-squares fit of step time vs token number (from token 2): " + "; ".join(
             f"{k} **{f['slope']:+.3f} ms per token** (R² {f['r2']:.2f})" for k, f in fits.items()) + "."
     if name == "kv_migration":
         fit = stats.linear_fit([r["kv_MB"] for r in data], [r["pause_ms"] for r in data])
@@ -142,7 +142,11 @@ def summary_section(name: str, data) -> str:
     if name == "kv_cache":
         no, yes = data["step_ms"]["no cache"], data["step_ms"]["KV-cache"]
         return (f"{len(no)} tokens: **{data['tokens_per_s']['no cache']} vs {data['tokens_per_s']['KV-cache']} tokens/s**; "
-                f"last step {no[-1]:.1f} ms without cache vs {yes[-1]:.1f} ms with it. Chart: `charts/kv_cache.svg`")
+                f"last step {no[-1]:.1f} ms without cache vs {yes[-1]:.1f} ms with it (1 process)."
+                + ("" if "pipeline, no cache" not in data["step_ms"] else
+                   "\n\n" + table([{"config": k, "tokens_per_s": data["tokens_per_s"][k], "first_step_ms": round(v[0], 1),
+                                    "step_2_ms": round(v[1], 1), "last_step_ms": round(v[-1], 1)}
+                                   for k, v in data["step_ms"].items()])))
     if name == "token_latency":
         return table(data["rows"])
     if name == "recovery":

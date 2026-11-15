@@ -24,7 +24,8 @@ stopping service.
 **Headline results** (one 12-thread laptop, CPU only):
 - Output is **token-for-token identical** to single-process inference in every configuration: cache, batching,
   after a worker crash, and across layer moves.
-- KV-cache: **12.3 → 43.8 tokens/s** for 200-token generations (3.6×).
+- KV-cache: **11.0 → 40.8 tokens/s** for 200-token generations in one process (3.7×), **8.8 → 33.1** through the
+  pipeline (3.8×).
 - Continuous batching: **39.0 → 147.9 tokens/s** (3.8×) with identical outputs.
 - Worker crash: detected in **0.25 s**, restarted in **2.6 s**. The interrupted request completes with **identical
   output**; replaying 100 tokens takes **95 ms** vs 2.7 s to regenerate.
@@ -42,7 +43,7 @@ stopping service.
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-104 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+105 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -178,10 +179,19 @@ Matplotlib; fits and confidence intervals are computed with NumPy.
 experiment, and all rebalancing runs also compare their outputs with the reference: **0 differing tokens**.
 
 ### 5.2 KV-cache and the split point
-| | tokens/s (200 tokens) | last step |
-|---|---|---|
-| no cache | 12.3 | 128.3 ms |
-| KV-cache | 43.8 | 25.7 ms |
+| | tokens/s (200 tokens) | step 2 | step 200 | growth per token | A → B, last step |
+|---|---|---|---|---|---|
+| 1 process, no cache | 11.0 | 30.4 ms | 144.8 ms | +0.54 ms (R² 0.97) | – |
+| 1 process, KV-cache | 40.8 | 24.0 ms | 25.4 ms | +0.01 ms (R² 0.25) | – |
+| pipeline, no cache | 8.8 | 55.0 ms | 174.8 ms | +0.64 ms (R² 0.91) | 627 KB |
+| pipeline, KV-cache | 33.1 | 29.9 ms | 30.4 ms | +0.005 ms (R² 0.03) | 3 KB |
+
+The pipeline without a cache is the engine's first distributed version: every step sends the whole sequence through
+both workers (here: a fresh request at every step, its cache dropped afterwards). During the build it measured
+~49 ms per step on short sequences; here it starts at 50–55 ms. The cache helps the pipeline as much as one process,
+3.8× (8.8 → 33.1 tokens/s) vs 3.7×. Without it, splitting the model also costs more as the text grows. The gap to one
+process widens from ~25 ms to ~30 ms per step over 200 tokens (+0.64 vs +0.54 ms per token), because A ships the
+hidden state of *every* position to B: 627 KB on the last step instead of 3 KB.
 
 | split (A/B blocks) | A ms | B ms | overhead ms | step ms |
 |---|---|---|---|---|
@@ -195,13 +205,14 @@ With one request the step time is the *sum* of the stages, so the split barely m
 matters when stages overlap (§5.6). B is always heavier than its block count suggests: it owns the output layer
 (768 × 50,257). Network + serialisation overhead is ~3 ms per step for two hops.
 
-A least-squares line through the step times makes the KV-cache claim a single number: without the cache every
-generated token makes the next step **0.43 ms slower** (R² 0.90). With the cache the slope is **0.004 ms per token**,
-i.e. flat (R² 0.04: what remains is noise).
+The growth column is a least-squares line through the step times (from step 2; step 1 is the prefill). It makes the
+KV-cache claim a single number: without the cache every generated token makes the next step **0.54 ms slower**
+(R² 0.97). With the cache the slope is **0.01 ms per token**, i.e. flat (the low R² means what remains is noise).
 
 ![KV-cache](../results/charts/kv_cache.png)
 
-*Figure 3. Time per decode step over a 200-token generation, with the least-squares fits (dashed).*
+*Figure 3. Time per decode step over a 200-token generation, in one process and through the pipeline, with and
+without the KV-cache; dashed: least-squares fits.*
 
 ![Split sweep](../results/charts/split_sweep.png)
 

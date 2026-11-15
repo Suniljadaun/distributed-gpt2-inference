@@ -32,16 +32,21 @@ def _save(fig, path: Path) -> None:
 
 
 def kv_cache(data: dict, out: Path) -> None:
-    fig, ax = plt.subplots()
-    for (name, ms), colour in zip(data["step_ms"].items(), (RED, BLUE)):
+    fig, ax = plt.subplots(figsize=(7.2, 4.2))
+    styles = {"no cache": (RED, "-"), "KV-cache": (BLUE, "-"),
+              "pipeline, no cache": ("#f59e0b", "-"), "pipeline, KV-cache": (GREEN, "-")}
+    for name, ms in data["step_ms"].items():
+        colour, ls = styles.get(name, (GREY, "-"))
         x = np.arange(1, len(ms) + 1)
-        fit = stats.growth(ms)
-        ax.plot(x, ms, color=colour, lw=1.2, label=f"{name} ({data['tokens_per_s'][name]} tok/s)")
-        ax.plot(x, fit["intercept"] + fit["slope"] * x, color=colour, lw=1, ls="--",
-                label=f"  fit: {fit['slope']:+.2f} ms per token (R² {fit['r2']:.2f})")
-    ax.set(title="Decode step time: no cache vs KV-cache (1 process)", xlabel="token number", ylabel="ms per step")
+        fit = stats.growth(ms[1:])                                     # step 1 is the prefill: not in the fit
+        label = name if name.startswith("pipeline") else f"1 process, {name}"
+        ax.plot(x, ms, color=colour, lw=1.1, ls=ls,
+                label=f"{label}: {data['tokens_per_s'][name]} tok/s, {fit['slope']:+.2f} ms/token")
+        ax.plot(x[1:], fit["intercept"] + fit["slope"] * x[1:], color=colour, lw=0.9, ls="--")
+    title = "Decode step time: no cache vs KV-cache" + ("" if len(data["step_ms"]) > 2 else " (1 process)")
+    ax.set(title=title, xlabel="token number", ylabel="ms per step")
     ax.set_ylim(bottom=0)
-    ax.legend(loc="upper left")
+    ax.legend(loc="upper left", fontsize=8)
     _save(fig, out / "kv_cache.png")
 
 
