@@ -124,6 +124,9 @@ def test_matplotlib_writes_every_chart(tmp_path):
         "bubble": [{"m": m, "model_idle": 1 / (m + 1), "model_measured_stages_idle": 1 / (m + 1) + 0.02,
                     "measured_idle": 1 / (m + 1) + 0.01, "A_idle": 1 / (m + 1) + 0.05, "B_idle": 1 / (m + 1)}
                    for m in (1, 2, 4, 8)],
+        "token_latency": {"itl_ms": {"single process": [20 + i % 5 for i in range(100)],
+                                     "pipeline, 2 workers": [23 + i % 7 for i in range(100)],
+                                     "pipeline, 4 at once": [40 + i % 30 for i in range(100)]}},
         "kv_migration": [{"requests": r, "context": c, "kv_MB": r * c * 0.006144, "pause_ms": 5 + 4 * r * c * 0.006144}
                          for r in (1, 4) for c in (64, 512)],
         "rebalance": _timeline([46, 48, 48, 48, 48, 30, 26, 26, 26], [44, 53, 53, 53, 53, 30, 38, 38, 38],
@@ -254,3 +257,12 @@ def test_kv_migration_moves_exactly_6144_bytes_per_cached_token():
     assert KV_BYTES_PER_TOKEN == 6144
     assert report.kv_requests == back.kv_requests == 2
     assert report.kv_bytes == back.kv_bytes == 2 * 40 * KV_BYTES_PER_TOKEN
+
+
+# ---------------- per-token latency percentiles ----------------
+
+def test_latency_percentiles_split_first_token_from_the_rest():
+    from src.bench.experiments import _percentiles
+    row = _percentiles([100.0, 120.0], [20.0] * 98 + [50.0, 60.0])
+    assert row["ttft_p50_ms"] == pytest.approx(110) and row["itl_p50_ms"] == 20
+    assert 20 < row["itl_p99_ms"] <= 60 and row["samples"] == 100

@@ -59,6 +59,68 @@ def split_sweep(base_port: int) -> list[dict]:
     return out
 
 
+def _percentiles(first: list[float], rest: list[float]) -> dict:
+    import numpy as np
+    p = lambda xs, q: round(float(np.percentile(xs, q)), 2)
+    return {"ttft_p50_ms": p(first, 50), "ttft_p99_ms": p(first, 99),
+            "itl_p50_ms": p(rest, 50), "itl_p99_ms": p(rest, 99), "itl_mean_ms": round(statistics.mean(rest), 2),
+            "tokens_per_s_per_request": round(1000 / statistics.mean(rest), 1), "samples": len(rest)}
+
+
+def token_latency(base_port: int, runs: int = 10, tokens: int = 60, concurrent: int = 4) -> dict:
+    """Per-token latency, p50 / p99: time to the first token (prefill) and between tokens (one decode step).
+    Single process vs the 2-worker pipeline (one request at a time, then `concurrent` at once). The same reference
+    prompts each way; pipeline times are measured by the coordinator around each step (both hops included)."""
+    prompts = [e["prompt_ids"] for e in json.loads(REFERENCE_FILE.read_text(encoding="utf-8"))["entries"]]
+    rows, samples = [], {}
+
+    model = load_pretrained()
+    first, rest = [], []
+    for r in range(runs + 1):                                       # run 0 = warm-up, not counted
+        cache, feed, times = KVCache(), list(prompts[r % len(prompts)]), []
+        for _ in range(tokens):
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                tok = cached_step(model, cache, feed)
+            times.append((time.perf_counter() - t0) * 1000)
+            feed = [tok]
+        if r:
+            first.append(times[0])
+            rest += times[1:]
+    rows.append({"config": "single process", **_percentiles(first, rest)})
+    samples["single process"] = rest
+    del model
+
+    with running_cluster(two_stage_layout(base_port=base_port)) as pipe:
+        first, rest = [], []
+        for r in range(runs + 1):
+            _, timings = generate(pipe, f"lat-{r}", prompts[r % len(prompts)], tokens)
+            if r:
+                first.append(timings[0].total_ms)
+                rest += [t.total_ms for t in timings[1:]]
+        rows.append({"config": "pipeline, 2 workers", **_percentiles(first, rest)})
+        samples["pipeline, 2 workers"] = rest
+
+        first, rest, lock = [], [], threading.Lock()
+
+        def one(c: int, r: int) -> None:
+            _, timings = generate(pipe, f"lat-c{c}-{r}", prompts[(r + c) % len(prompts)], tokens)
+            with lock:
+                first.append(timings[0].total_ms)
+                rest.extend(t.total_ms for t in timings[1:])
+
+        for r in range(max(1, runs // 2)):                          # runs/2 rounds of `concurrent` requests
+            threads = [threading.Thread(target=one, args=(c, r)) for c in range(concurrent)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        label = f"pipeline, {concurrent} at once"
+        rows.append({"config": label, **_percentiles(first, rest)})
+        samples[label] = rest
+    return {"rows": rows, "itl_ms": {k: [round(x, 2) for x in v] for k, v in samples.items()}}
+
+
 KV_BYTES_PER_TOKEN = 2 * 768 * 4             # one layer: K and V, 768 float32 values each, per cached position
 
 

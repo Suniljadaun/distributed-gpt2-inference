@@ -16,6 +16,7 @@ The design, the measurements and the discussion are in **[report/Final_Report.pd
 |---|---|
 | Output vs single-process inference | identical, token for token, in every configuration |
 | KV-cache | 12.3 → 43.8 tokens/s (200-token generations) |
+| Per-token latency, single process → pipeline | p50 22.5 → 27.2 ms, p99 27.8 → 35.6 ms |
 | Continuous batching | 39.0 → 147.9 tokens/s (3.8×) |
 | Worker crash | detected in 0.25 s, restarted in 2.6 s, request finishes with identical output |
 | Dynamic rebalancing vs static split | +17% steady, +45% with one slow worker |
@@ -49,7 +50,7 @@ After that, `HF_HUB_OFFLINE=1` (PowerShell: `$env:HF_HUB_OFFLINE=1`) skips the o
 
 ## Run
 
-### Tests (103, about 4 minutes)
+### Tests (104, about 4 minutes)
 ```bash
 python -m pytest -q
 ```
@@ -79,7 +80,7 @@ Steps: correctness against single-process inference → steady load with the reb
 of a request → worker A slowed down (layers move away, then back) → duplicate requests. Close other programs
 first: the workers are pinned to cores 0–3 and the demo to cores 4–5.
 
-### Benchmarks (about 10 minutes)
+### Benchmarks (about 11 minutes)
 ```bash
 python -m src.bench.run_all                  # all experiments → results/bench/*.json, results/charts/, results/summary.md
 python -m src.bench.run_all --quick          # shorter runs
@@ -108,7 +109,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on every push:
-- **test**: installs everything on Ubuntu with Python 3.14, runs the 103 tests and a short benchmark (charts kept as
+- **test**: installs everything on Ubuntu with Python 3.14, runs the 104 tests and a short benchmark (charts kept as
   a downloadable artifact);
 - **compose**: builds the image, starts the three containers and runs `playground/ch17/compose_check.py`.
 
@@ -120,9 +121,9 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 | `src/proto/` | `inference.proto`, generated gRPC code, tensor codec |
 | `src/worker/` | a pipeline stage (range of layers; layers can be added and dropped) and its gRPC server |
 | `src/coordinator/` | pipeline client, schedulers, coordinator server, supervisor, remote health checks, token log, replay, rebalancer |
-| `src/bench/` | experiments (including the pipeline bubble and the KV-cache migrated per layer move), `run_all`, NumPy analysis, Matplotlib and SVG charts |
+| `src/bench/` | experiments (including per-token latency, the pipeline bubble and the KV-cache migrated per layer move), `run_all`, NumPy analysis, Matplotlib and SVG charts |
 | `src/client.py` | command-line client |
-| `tests/` | 103 tests (`test_chNN.py`, one file per stage of the build) |
+| `tests/` | 104 tests (`test_chNN.py`, one file per stage of the build) |
 | `playground/` | small experiments used while building; `ch18/demo.py` is the live demo, `ch17/compose_check.py` the container check |
 | `results/` | `reference.json` (single-process outputs for the correctness tests), benchmark data, charts, `summary.md` |
 | `report/` | the final report (Markdown source, PDF, figure, build script) and the scope report |

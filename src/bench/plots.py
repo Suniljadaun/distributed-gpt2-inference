@@ -184,8 +184,25 @@ def kv_migration(data: list[dict], out: Path) -> None:
     _save(fig, out / "kv_migration.png")
 
 
+def token_latency(data: dict, out: Path) -> None:
+    fig, ax = plt.subplots()
+    for (name, values), colour in zip(data["itl_ms"].items(), (GREY, BLUE, RED)):
+        x = np.sort(np.asarray(values))
+        p50, p99 = (float(np.percentile(x, q)) for q in (50, 99))
+        ax.plot(x, np.arange(1, len(x) + 1) / len(x), color=colour, lw=1.8,
+                label=f"{name}: p50 {p50:.1f}, p99 {p99:.1f} ms")
+        ax.plot([p50, p99], [0.5, 0.99], "o", color=colour, ms=5)      # the two percentiles on the curve
+    ax.set(title="Time between tokens (one decode step): distribution", xlabel="ms per token",
+           ylabel="fraction of tokens ≤ x")
+    ax.set_ylim(0, 1.05)
+    ax.set_xlim(0, max(max(v) for v in data["itl_ms"].values()) * 1.45)   # room on the right for the legend
+    ax.legend(loc="center right", fontsize=8.5)
+    _save(fig, out / "token_latency.png")
+
+
 DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
-        "wire": wire, "rebalance": rebalance, "bubble": bubble, "kv_migration": kv_migration}
+        "wire": wire, "rebalance": rebalance, "bubble": bubble, "kv_migration": kv_migration,
+        "token_latency": token_latency}
 FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
 
 

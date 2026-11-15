@@ -42,7 +42,7 @@ stopping service.
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-103 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+104 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -207,6 +207,28 @@ i.e. flat (R² 0.04: what remains is noise).
 
 *Figure 4. Stage times for each split point (one request at a time).*
 
+**Per-token latency.** The same answers (the 3 reference prompts in turn, 10 runs of 60 tokens after one warm-up) were generated
+in a single process and through the pipeline. Time to first token is the prefill step; the time between tokens is
+one decode step. Pipeline times are measured by the coordinator around the whole step, both hops included.
+
+| | first token p50 | first token p99 | between tokens p50 | between tokens p99 | tokens/s per request |
+|---|---|---|---|---|---|
+| single process | 32.1 ms | 46.9 ms | 22.5 ms | 27.8 ms | 43.8 |
+| pipeline, 2 workers | 37.8 ms | 50.0 ms | 27.2 ms | 35.6 ms | 35.7 |
+| pipeline, 4 requests at once | 123.5 ms | 136.4 ms | 54.5 ms | 63.0 ms | 18.4 (×4 = 73.6) |
+
+Splitting the model costs **4.8 ms per token at p50 and 7.8 ms at p99** (+21% and +28%): two gRPC hops,
+serialisation and the extra Python work, the ~3 ms overhead of Figure 4 plus its variation. The p99 values of the
+first token come from only 10 (or 20) prefills each, so they are close to the maximum. The distribution is narrow in
+both cases: p99 is within 9 ms of p50, so no token is held up by retries or long pauses when nothing fails. With
+four requests at once, each request waits for the others at every stage, and its time between tokens doubles. But
+four are served together, so the pipeline delivers 73.6 tokens/s in total, twice its one-request rate. That is the
+latency/throughput trade-off that batching (§5.4) takes further.
+
+![Per-token latency](../results/charts/token_latency.png)
+
+*Figure 5. Distribution of the time between tokens; dots mark p50 and p99.*
+
 ### 5.3 Backpressure (G3)
 | queue | arrival rate (req/s) | sent | ok | rejected | expired | p99 (s) | L sampled | L = λW |
 |---|---|---|---|---|---|---|---|---|
@@ -221,7 +243,7 @@ of them and lets 46 of 79 expire after waiting: fewer completions (33) and twice
 
 ![Load and latency](../results/charts/load_latency.png)
 
-*Figure 5. Left: latency of the bounded queue as the offered rate grows. Right: what happened to the requests at
+*Figure 6. Left: latency of the bounded queue as the offered rate grows. Right: what happened to the requests at
 6 req/s, bounded vs unbounded queue.*
 
 ### 5.4 Batching (G4)
@@ -238,7 +260,7 @@ batch of 24 by filling the pipeline bubble.
 
 ![Throughput](../results/charts/throughput.png)
 
-*Figure 6. Throughput for each batching configuration (speed-up over one at a time in brackets); every output
+*Figure 7. Throughput for each batching configuration (speed-up over one at a time in brackets); every output
 matched the reference.*
 
 **Pipeline bubble.** To compare with the bubble model directly, m independent micro-batches (32-token prefills) are
@@ -263,7 +285,7 @@ imbalance between the stages, which is the problem rebalancing (§5.6) addresses
 
 ![Pipeline bubble](../results/charts/bubble.png)
 
-*Figure 7. Idle fraction for a burst of m micro-batches: measured per stage and on average, the textbook model,
+*Figure 8. Idle fraction for a burst of m micro-batches: measured per stage and on average, the textbook model,
 and the model with the measured stage times.*
 
 ### 5.5 Recovery (G5)
@@ -315,7 +337,7 @@ rather than 5%, which is within the noise of the throughput figures.
 
 ![Rebalancing](../results/charts/rebalance.png)
 
-*Figure 8. Throughput over time (4 s buckets): static 3/3 split, the model policy and the imbalance threshold.
+*Figure 9. Throughput over time (4 s buckets): static 3/3 split, the model policy and the imbalance threshold.
 Shaded: worker A slowed.*
 
 **Cost of one layer move.** A move carries the moved layer's K and V for every request in flight: 2 × 768 float32
@@ -342,7 +364,7 @@ request's slice and replaying it from the token log (§4.6).
 
 ![KV migration](../results/charts/kv_migration.png)
 
-*Figure 9. Pause of one layer move vs KV-cache migrated (log–log; labels are requests × cached tokens).*
+*Figure 10. Pause of one layer move vs KV-cache migrated (log–log; labels are requests × cached tokens).*
 
 ### 5.7 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.

@@ -29,8 +29,8 @@ from src.bench.svg import bar_chart, line_chart
 
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
-ALL = ["reference", "kv_cache", "split_sweep", "wire", "throughput", "bubble", "load", "recovery", "rebalance",
-       "kv_migration"]
+ALL = ["reference", "kv_cache", "token_latency", "split_sweep", "wire", "throughput", "bubble", "load", "recovery",
+       "rebalance", "kv_migration"]
 
 
 def environment() -> dict:
@@ -63,6 +63,8 @@ def run_experiment(name: str, quick: bool):
         return ex.recovery(50460)
     if name == "rebalance":
         return ex.rebalance(quick)
+    if name == "token_latency":
+        return ex.token_latency(50480, runs=4 if quick else 10)
     if name == "kv_migration":
         return ex.kv_migration(50470, repeats=2 if quick else 3)
     raise ValueError(f"unknown experiment {name!r}")
@@ -141,6 +143,8 @@ def summary_section(name: str, data) -> str:
         no, yes = data["step_ms"]["no cache"], data["step_ms"]["KV-cache"]
         return (f"{len(no)} tokens: **{data['tokens_per_s']['no cache']} vs {data['tokens_per_s']['KV-cache']} tokens/s**; "
                 f"last step {no[-1]:.1f} ms without cache vs {yes[-1]:.1f} ms with it. Chart: `charts/kv_cache.svg`")
+    if name == "token_latency":
+        return table(data["rows"])
     if name == "recovery":
         replay = table(data["replay"])
         rest = {k: v for k, v in data.items() if k != "replay"}
