@@ -52,8 +52,9 @@ class StageModel:
 class Rebalancer:
     def __init__(self, pipe: Pipeline, n_layer: int = 6, supervisor=None, period_s: float = 1.0,
                  window_s: float = 3.0, margin: float = 0.05, cooldown_s: float = 3.0, min_samples: int = 15,
-                 undo_margin: float = 0.10) -> None:
-        self.pipe, self.n_layer, self.supervisor = pipe, n_layer, supervisor
+                 undo_margin: float = 0.10, log=None) -> None:
+        """log = a TokenLog: every committed layout (and the one at start) is recorded in it."""
+        self.pipe, self.n_layer, self.supervisor, self.log = pipe, n_layer, supervisor, log
         self.period_s, self.window_s, self.margin = period_s, window_s, margin
         self.undo_margin = undo_margin                             # Ch 18: higher bar for reversing the last move
         self.cooldown_s, self.min_samples = cooldown_s, min_samples
@@ -64,6 +65,8 @@ class Rebalancer:
         self.epoch = epochs.pop()
         self.layout = [(i.first_layer, i.last_layer) for i in infos]
         pipe.epoch = self.epoch                                    # every call now carries the epoch
+        if log is not None:
+            log.layout(self.epoch, self.layout)
         self.moves: list[MoveReport] = []
         self.events: list[tuple[float, str]] = []
         self.move_lock = threading.Lock()                          # one layout change at a time
@@ -115,6 +118,8 @@ class Rebalancer:
                     self._commit_with_retries(stub, epoch, first, last)
                 self.layout[src], self.layout[dst] = new_src, new_dst
                 self.epoch = self.pipe.epoch = epoch
+                if self.log is not None:                           # still paused: the layout record comes
+                    self.log.layout(epoch, self.layout)            # before any token of the new epoch
                 pause_ms = (time.perf_counter() - pause_start) * 1000
 
             if self.supervisor is not None:                        # a restarted worker must come back like this

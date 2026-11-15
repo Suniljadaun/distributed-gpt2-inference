@@ -45,6 +45,12 @@ def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -
     ]
 
 
+def layout_from_ranges(ranges, epoch: int = 1, base_port: int = 50061) -> list[WorkerSpec]:
+    """Workers A, B, ... for the given (first, last) layer ranges, e.g. the latest layout in the token log."""
+    return [WorkerSpec(chr(ord("A") + k), base_port + k, first, last, embed=k == 0, head=k == len(ranges) - 1,
+                       epoch=epoch) for k, (first, last) in enumerate(ranges)]
+
+
 @contextmanager
 def running_cluster(layout: list[WorkerSpec], ready_timeout_s: float = 60.0, **pipeline_options) -> Iterator[Pipeline]:
     procs = [subprocess.Popen(spec.command()) for spec in layout]

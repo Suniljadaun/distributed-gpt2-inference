@@ -40,9 +40,9 @@ stopping service.
 | G3 Bounded queue, timeouts, retries with backoff | Done | `src/coordinator/scheduler.py`, `pipeline.py`; `test_ch10.py`; `load` experiment |
 | G4 Micro-batching, pipeline bubble | Done (continuous batching); stage idle time measured against the bubble model | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` and `bubble` experiments |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
-| G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call but not written to the token log | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
+| G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-96 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+99 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -108,7 +108,9 @@ The coordinator rebuilds it by sending `prompt + committed tokens[:-1]` as **one
 uses a fresh worker-side request id, so state from a dead attempt cannot mix in. On startup a CRC failure in the
 **last** line is treated as a torn write and truncated; one in the **middle** is corruption and the log refuses to
 open. *Choice:* flush (10.7 µs/token) rather than fsync (0.89 ms/token). The threat model is a process crash, not
-power loss.
+power loss. Each token record also carries the **layout epoch** it was computed under, and every committed layout is a
+`layout` record (epoch and layer range of each stage). The log therefore says which layout produced every token, and
+a restarted coordinator starts its workers in the last logged layout instead of the default 3/3 split.
 
 ### 4.7 Fencing and idempotency (G5)
 A worker declared dead may still be alive (a hang) and reply later: a *zombie*. Every request carries the expected
@@ -129,7 +131,8 @@ predicted, but each gain was within the noise.
 **Protocol.** (1) `PrepareLayer`: the receiver loads the layer's weights *while traffic continues*. (2) The layout
 gate, a readers-writer lock with writer priority, pauses new steps. (3) `ExportKV` / `ImportKV` copy the layer's
 KV-cache slices for all active requests. (4) `CommitLayout` on the **receiver first**, then the sender, with epoch + 1.
-(5) Release the gate. Any failure before the receiver commits leads to `AbortLayout`, and the old layout stays.
+(5) Write the new layout to the token log, still inside the gate, so it precedes every token of the new epoch.
+(6) Release the gate. Any failure before the receiver commits leads to `AbortLayout`, and the old layout stays.
 After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 6–30 ms.
 
 **Rejected designs** (all implemented and measured):
@@ -315,8 +318,9 @@ throughout. The main lessons:
   work at all.
 
 **Next steps.** The coordinator is still a single point of failure: its log is local, so the next step is to
-replicate it (e.g. with Raft) and to record layout epochs in it, so that a coordinator crash during a layer move is
-recovered from the log too. Token logging currently works with the slot scheduler only, not with continuous
+replicate it (e.g. with Raft). Layer moves need workers that the coordinator starts itself: workers that outlive a
+crashed coordinator (as in the Docker deployment) could be left at different epochs by an interrupted move, which a
+new coordinator detects but does not repair. Token logging currently works with the slot scheduler only, not with continuous
 batching. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
 GPT-2, which the design supports but which were not measured.
 

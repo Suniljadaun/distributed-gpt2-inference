@@ -137,3 +137,70 @@ def test_bubble_model_is_the_textbook_formula():
     assert bubble_model(2) == pytest.approx(1 / 3)
     assert bubble_model(8, p=4) == pytest.approx(3 / 11)
     assert [bubble_model(m) for m in (1, 2, 4, 8)] == sorted([bubble_model(m) for m in (1, 2, 4, 8)], reverse=True)
+
+
+# ---------------- G6: the layout epoch in the token log ----------------
+
+def test_log_records_epochs_and_layouts_and_reads_them_back(tmp_path):
+    from src.coordinator.token_log import TokenLog
+    log = TokenLog(tmp_path / "log.jsonl")
+    log.layout(1, [(0, 3), (3, 6)])
+    log.start("r", [464, 3139], 3)
+    log.append_token("r", 11, epoch=1)
+    log.layout(2, [(0, 2), (2, 6)])
+    log.layout(2, [(0, 2), (2, 6)])                                 # same layout again: not written twice
+    log.append_token("r", 12, epoch=2)
+    with pytest.raises(ValueError):
+        log.layout(1, [(0, 3), (3, 6)])                             # epochs never go backwards
+    log.close()
+    again = TokenLog(tmp_path / "log.jsonl")
+    assert again.get("r").tokens == [11, 12] and again.get("r").epochs == [1, 2]
+    assert again.latest_layout == (2, [(0, 2), (2, 6)])
+    assert again.next_lsn == 5                                      # layout, start, token, layout, token
+    again.close()
+
+
+def test_old_logs_without_epochs_still_load(tmp_path):
+    import json, zlib
+    from src.coordinator.token_log import TokenLog
+    lines = [{"lsn": 0, "type": "start", "rid": "r", "prompt": [1], "max_new": 2},
+             {"lsn": 1, "type": "token", "rid": "r", "i": 0, "tok": 7}]
+    bodies = [json.dumps(r, separators=(",", ":")) for r in lines]
+    (tmp_path / "old.jsonl").write_text("".join(f"{b}\t{zlib.crc32(b.encode()):08x}\n" for b in bodies))
+    log = TokenLog(tmp_path / "old.jsonl")
+    assert log.get("r").epochs == [0] and log.latest_layout is None
+    log.close()
+
+
+def test_tokens_carry_the_epoch_they_were_computed_under_and_a_restart_reuses_the_layout(tmp_path):
+    from src.coordinator.cluster import layout_from_ranges
+    from src.coordinator.replay import generate_logged
+    from src.coordinator.token_log import TokenLog
+    from src.reference import REFERENCE_FILE
+    import json
+    entry = json.loads(REFERENCE_FILE.read_text(encoding="utf-8"))["entries"][0]
+    log = TokenLog(tmp_path / "log.jsonl")
+    with supervised_cluster(two_stage_layout(base_port=50631)) as (pipe, sup):
+        reb = Rebalancer(pipe, supervisor=sup, log=log)
+        before = generate_logged(pipe, log, "before", entry["prompt_ids"], 5, health=sup)
+        reb.move(0, 1)                                              # layer 2: A -> B, epoch 2
+        after = generate_logged(pipe, log, "after", entry["prompt_ids"], 5, health=sup)
+    assert before.new_ids == after.new_ids == entry["new_ids"][:5]
+    assert log.get("before").epochs == [1] * 5 and log.get("after").epochs == [2] * 5
+    log.close()
+
+    records = [json.loads(line.rsplit("\t", 1)[0]) for line in (tmp_path / "log.jsonl").read_text().splitlines()]
+    layout_lsn = next(r["lsn"] for r in records if r["type"] == "layout" and r["epoch"] == 2)
+    first_e2 = next(r["lsn"] for r in records if r["type"] == "token" and r["epoch"] == 2)
+    assert layout_lsn < first_e2                                    # the layout is logged before its first token
+
+    log = TokenLog(tmp_path / "log.jsonl")                          # "coordinator restart"
+    epoch, ranges = log.latest_layout
+    assert (epoch, ranges) == (2, [(0, 2), (2, 6)])
+    with supervised_cluster(layout_from_ranges(ranges, epoch, base_port=50633)) as (pipe, sup):
+        reb = Rebalancer(pipe, supervisor=sup, log=log)
+        assert (reb.epoch, reb.layout) == (2, [(0, 2), (2, 6)])     # workers came back in the logged layout
+        again = generate_logged(pipe, log, "after-restart", entry["prompt_ids"], 5, health=sup)
+    assert again.new_ids == entry["new_ids"][:5] and log.get("after-restart").epochs == [2] * 5
+    assert log.next_lsn == len(records) + 7                         # start + 5 tokens + end; no new layout record
+    log.close()

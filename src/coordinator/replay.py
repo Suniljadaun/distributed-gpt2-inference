@@ -69,16 +69,16 @@ def _run(pipe: Pipeline, log: TokenLog, wid: str, rid: str, eos_id: int | None, 
     """Rebuild the caches from the log (one prefill), then decode until finished. Raises on worker errors."""
     rec = log.get(rid)
     prefix = rec.prompt + rec.tokens[:-1]          # everything the caches must hold before the next step
-    tok, _ = pipe.step(wid, 0, prefix, 0, deadline)
+    tok, timing = pipe.step(wid, 0, prefix, 0, deadline)
     if rec.tokens:                                 # resuming: this step re-predicts the last logged token
         result.replayed_tokens += len(prefix)
         if tok != rec.tokens[-1]:
             result.mismatches += 1
         tok = rec.tokens[-1]                       # committed tokens never change: the log wins
     else:
-        log.append_token(rid, tok)
+        log.append_token(rid, tok, timing.epoch)
     start_pos, step = len(prefix), 1
     while not _finished(log, rid, eos_id):
-        tok, _ = pipe.step(wid, step, [tok], start_pos, deadline)
-        log.append_token(rid, tok)                 # commit first ...
+        tok, timing = pipe.step(wid, step, [tok], start_pos, deadline)
+        log.append_token(rid, tok, timing.epoch)   # commit first (with the layout epoch it was computed under) ...
         start_pos, step = start_pos + 1, step + 1  # ... then move on

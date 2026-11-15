@@ -11,7 +11,7 @@ from concurrent import futures
 
 import grpc
 
-from src.coordinator.cluster import supervised_cluster, two_stage_layout
+from src.coordinator.cluster import layout_from_ranges, supervised_cluster, two_stage_layout
 from src.coordinator.pipeline import Pipeline
 from src.coordinator.scheduler import BatchingScheduler, Job, Scheduler
 from src.coordinator.token_log import TokenLog
@@ -111,16 +111,29 @@ def main() -> None:
     parser.add_argument("--workers", default="",
                         help="Ch 17: connect to running workers, e.g. worker-a:50051,worker-b:50052 (in stage order), "
                              "instead of starting them; restarts are then someone else's job (e.g. Docker)")
+    parser.add_argument("--rebalance", action="store_true",
+                        help="Ch 15: run the rebalancer (not with --workers); with --log, layouts are logged too")
     args = parser.parse_args()
+    if args.rebalance and args.workers:
+        parser.error("--rebalance needs workers this coordinator starts (Docker restarts them in their old layout)")
     log = TokenLog(args.log) if args.log else None
     if log is not None and log.incomplete():
         print(f"[coordinator] log has {len(log.incomplete())} unfinished requests (resumable)", flush=True)
     if args.workers:
         from src.coordinator.remote import remote_cluster
         cluster = remote_cluster(args.workers.split(","))
+    elif log is not None and log.latest_layout is not None:
+        epoch, ranges = log.latest_layout                       # restart in the last committed layout
+        print(f"[coordinator] log: layout epoch {epoch}, layers {ranges}", flush=True)
+        cluster = supervised_cluster(layout_from_ranges(ranges, epoch))
     else:
         cluster = supervised_cluster(two_stage_layout())
     with cluster as (pipe, health):
+        rebalancer = None
+        if args.rebalance:
+            from src.coordinator.rebalancer import Rebalancer
+            rebalancer = Rebalancer(pipe, supervisor=health, log=log)
+            rebalancer.start()
         server, scheduler = start_coordinator(pipe, args.port, args.queue_size, args.slots, args.max_batch,
                                               health=health, log=log, host=args.host)
         print(f"[coordinator] listening on {args.host}:{args.port}, queue {args.queue_size}, "
@@ -130,6 +143,8 @@ def main() -> None:
         except KeyboardInterrupt:
             pass
         finally:
+            if rebalancer is not None:
+                rebalancer.stop()
             server.stop(grace=1.0)
             scheduler.stop()
 

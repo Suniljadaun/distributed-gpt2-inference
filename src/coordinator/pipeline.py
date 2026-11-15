@@ -88,6 +88,7 @@ class StepTiming:
     total_ms: float               # measured by the coordinator, around the whole step
     compute_ms: tuple[float, ...]  # measured inside each worker
     retries: int = 0              # Ch 10: calls in this step that had to be retried
+    epoch: int = 0                # layout epoch the step ran under (0 = no rebalancer, layout fixed)
 
     @property
     def overhead_ms(self) -> float:
@@ -177,13 +178,13 @@ class Pipeline:
              deadline: float = math.inf) -> tuple[int, StepTiming]:
         """One step through every stage: only the NEW tokens travel. Returns the next token id."""
         with self.gate.shared():                       # Ch 15: never while the layout is changing
-            start = time.perf_counter()
+            start, epoch = time.perf_counter(), self.epoch     # fixed while we hold the gate
             message = tensor_to_proto(torch.tensor([new_ids]))
             compute, blocks, retries = [], [], 0
             for k, stub in enumerate(self.stubs):
                 request = pb.ForwardRequest(request_id=request_id, step_id=step_id, input=message,
                                             start_pos=start_pos, expect_generation=self.expected[k],
-                                            expect_epoch=self.epoch)
+                                            expect_epoch=epoch)
                 reply, r = self._forward(stub, request, deadline)
                 self._check_generation(k, reply)
                 retries += r
@@ -197,7 +198,7 @@ class Pipeline:
                 message = reply.output                 # hidden state passes through untouched
             if len(new_ids) == 1:
                 self._record(1, compute, blocks)       # decode steps only: prefill would distort the monitor
-            timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries)
+            timing = StepTiming((time.perf_counter() - start) * 1000, tuple(compute), retries, epoch)
             return reply.next_token, timing
 
     def step_batch(self, items: list[tuple[str, int, int, int]],

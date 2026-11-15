@@ -89,7 +89,8 @@ class Demo:
         expected = generate_cached(load_pretrained(), PROMPT, 60)   # the no-failure answer, single process
         with supervised_cluster(self.layout()) as (pipe, sup):
             log = TokenLog(self.log_path)
-            reb = Rebalancer(pipe, supervisor=sup, period_s=1.0, window_s=3.0, cooldown_s=3.0, min_samples=15)
+            reb = Rebalancer(pipe, supervisor=sup, period_s=1.0, window_s=3.0, cooldown_s=3.0, min_samples=15,
+                             log=log)
             server, scheduler = start_coordinator(pipe, PORT + 2, queue_size=8, slots=4, health=sup, log=log)
             channel = grpc.insecure_channel(f"127.0.0.1:{PORT + 2}")
             stub = pb_grpc.CoordinatorStub(channel)
