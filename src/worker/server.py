@@ -141,6 +141,8 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
         s = self.stage
         new_range, old_range = (request.first_layer, request.last_layer), (s.first, s.last)
         with self.requests_lock:
+            if request.epoch == self.epoch and new_range == old_range:  # already there (a retried commit, or a
+                return pb.CommitLayoutReply(epoch=self.epoch, first_layer=s.first, last_layer=s.last)  # restarted worker)
             if request.epoch != self.epoch + 1:
                 context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"commit for epoch {request.epoch}, I am at {self.epoch}")
             try:

@@ -43,7 +43,7 @@ stopping service.
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
 
-105 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+106 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -134,7 +134,8 @@ gate, a readers-writer lock with writer priority, pauses new steps. (3) `ExportK
 KV-cache slices for all active requests. (4) `CommitLayout` on the **receiver first**, then the sender, with epoch + 1.
 (5) Write the new layout to the token log, still inside the gate, so it precedes every token of the new epoch.
 (6) Release the gate. Any failure before the receiver commits leads to `AbortLayout`, and the old layout stays.
-After it, the sender's commit is retried, and steps carrying the old epoch are fenced. Measured pause: 7–34 ms in
+After it, the move is decided. The supervisor is told the new layout first, so a worker that crashes now is restarted
+in it, and the sender's (idempotent) commit is retried until it succeeds. Steps carrying the old epoch are fenced. Measured pause: 7–34 ms in
 the rebalancing runs; it grows with the KV-cache that has to move, about 11 ms per MB (§5.6).
 
 **Rejected designs** (all implemented and measured):
@@ -166,6 +167,43 @@ inference. Lost requests: 0. GitHub Actions repeats this check on every push.
 The rebalancer is not enabled in this deployment: Docker restarts a worker with its original command, so after a
 layer move a restarted container would come back with the old layer range. Rebalancing (§4.8, §5.6) runs with the
 supervisor, which restarts a worker with its current range.
+
+### 4.10 Failure model and guarantees
+**Failure model.** What the design assumes can go wrong:
+- **Workers** crash (the process exits) or hang (it stops answering). A restarted worker is a new incarnation with a
+  higher generation number and an empty KV-cache.
+- **The coordinator** process can crash and be restarted. Its disk survives: the log is flushed to the operating
+  system, not forced to disk, so a process crash is covered and a power cut is not.
+- **Messages** can be delayed, retried (duplicated), or arrive from an incarnation or layout that no longer exists
+  (zombies). Workers and coordinator are honest: no Byzantine behaviour, no attacker on the network.
+- **Clocks** are only used locally: deadlines, heartbeats and timeouts use each process's monotonic clock, so no clock
+  synchronisation is needed. (In the Docker mode, a generation is the worker's start time in milliseconds, which
+  assumes the host clock does not go backwards between two restarts.)
+- **One coordinator** runs at a time.
+
+**Guarantees** under that model, how they are achieved, and the tests that check them:
+
+| # | Guarantee | Mechanism | Checked by |
+|---|---|---|---|
+| 1 | Every completed reply equals single-process greedy inference, token for token: with the cache, batching, after worker crashes and across layer moves | stored reference outputs; the log wins over a replay | `test_ch08`, `ch11`, `ch13`, `ch15` |
+| 2 | A token reported to the client is never lost or changed, even if the coordinator process crashes | write-ahead: the token is in the log before it is used; replay re-predicts, the log wins on mismatch | `test_ch13` (resume after coordinator restart, torn tail, corruption) |
+| 3 | Effectively-once per request id: a repeat gets the same answer and no second computation; the same id with a different request is refused | answers from the log; coalescing of concurrent duplicates; `ALREADY_EXISTS` | `test_ch14` |
+| 4 | Each request's steps are applied by every worker in order, each exactly once | `step_id` + `start_pos` checks; a duplicate of the last step returns the stored reply; a different input for it is refused | `test_ch09`, `test_ch14` |
+| 5 | No reply from an older worker incarnation or an older layout is ever used | every call carries the expected generation and epoch; workers refuse, the coordinator discards (`StaleReply`) | `test_ch14`, `test_ch15` |
+| 6 | A worker crash or hang does not fail a request that has time left: it completes with identical output if the worker is back before the deadline and at most 3 replays are needed | supervisor (or `RemoteHealth`) + generations + replay from the log | `test_ch12`–`14`, `test_ch17`, `recovery` experiment |
+| 7 | Otherwise the client gets an explicit error, never a wrong or partial answer: `UNAVAILABLE` ("retry it"), `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED` when the queue is full, or `INTERNAL` for an unexpected error. A retry with the same id resumes from the log | bounded queue, deadline propagation, status mapping in the scheduler | `test_ch10`, `test_ch13`, `load` experiment |
+| 8 | A layer move is all-or-nothing for the outputs: before the receiver commits, any failure leaves the old layout; after it, the move completes even if a worker crashes, because the worker is restarted in the new layout | two-phase commit under the layout gate; the supervisor learns the new layout before the remaining commits, and commits are idempotent | `test_ch15`, `test_ch18` (sender killed between the two commits) |
+| 9 | After a coordinator restart, workers come back in the last committed layout, and the log says which layout produced every token | `layout` records and per-token epochs in the log | `test_ch18` |
+
+**Not guaranteed** (outside the model, or known limits):
+- **Power loss or loss of the coordinator's disk.** The log is not fsynced and not replicated, so the coordinator is
+  a single point of failure.
+- **Two coordinators** sharing one log or one set of workers. Nothing fences a second coordinator.
+- **Batching and the log together.** With continuous batching (`--max-batch`), a worker crash fails the batched
+  requests with `UNAVAILABLE` instead of replaying them.
+- **Hung workers under Docker.** Docker restarts only containers that exit. A hung worker is detected and fenced,
+  but requests fail until it is restarted by hand. Layer moves are not available in this mode.
+- **Security.** Connections are plaintext gRPC without authentication.
 
 ## 5. Evaluation
 

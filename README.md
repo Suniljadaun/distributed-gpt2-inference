@@ -50,7 +50,7 @@ After that, `HF_HUB_OFFLINE=1` (PowerShell: `$env:HF_HUB_OFFLINE=1`) skips the o
 
 ## Run
 
-### Tests (105, about 4 minutes)
+### Tests (106, about 4 minutes)
 ```bash
 python -m pytest -q
 ```
@@ -109,7 +109,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on every push:
-- **test**: installs everything on Ubuntu with Python 3.14, runs the 105 tests and a short benchmark (charts kept as
+- **test**: installs everything on Ubuntu with Python 3.14, runs the 106 tests and a short benchmark (charts kept as
   a downloadable artifact);
 - **compose**: builds the image, starts the three containers and runs `playground/ch17/compose_check.py`.
 
@@ -123,7 +123,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 | `src/coordinator/` | pipeline client, schedulers, coordinator server, supervisor, remote health checks, token log, replay, rebalancer |
 | `src/bench/` | experiments (including per-token latency, the pipeline bubble and the KV-cache migrated per layer move), `run_all`, NumPy analysis, Matplotlib and SVG charts |
 | `src/client.py` | command-line client |
-| `tests/` | 105 tests (`test_chNN.py`, one file per stage of the build) |
+| `tests/` | 106 tests (`test_chNN.py`, one file per stage of the build) |
 | `playground/` | small experiments used while building; `ch18/demo.py` is the live demo, `ch17/compose_check.py` the container check |
 | `results/` | `reference.json` (single-process outputs for the correctness tests), benchmark data, charts, `summary.md` |
 | `report/` | the final report (Markdown source, PDF, figure, build script) and the scope report |

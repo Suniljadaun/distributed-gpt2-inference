@@ -277,3 +277,31 @@ def test_pipeline_without_cache_matches_with_cache_and_is_slower():
     assert set(ms) == {"no cache", "KV-cache", "pipeline, no cache", "pipeline, KV-cache"}
     assert all(len(v) == 25 for v in ms.values())                   # (the experiment asserts equal tokens itself)
     assert data["a_to_b_bytes_last_step"] == {"no cache": 29 * 3072, "KV-cache": 3072}
+
+
+# ---------------- a worker crash between the two commits of a layer move ----------------
+
+def test_sender_crash_between_the_commits_still_completes_the_move():
+    """The receiver has committed; the sender dies before its own commit. The supervisor must restart it in the NEW
+    layout and epoch, the retried commit must succeed on it, and generation must still match the reference."""
+    import json
+    from src.coordinator.pipeline import generate
+    from src.reference import REFERENCE_FILE
+    entry = json.loads(REFERENCE_FILE.read_text(encoding="utf-8"))["entries"][0]
+    with supervised_cluster(two_stage_layout(base_port=50661)) as (pipe, sup):
+        reb = Rebalancer(pipe, supervisor=sup)
+        commit = reb._commit_with_retries
+
+        def crash_then_commit(stub, epoch, first, last):
+            sup.kill(0)                                                 # A, the sender, dies here
+            sup.workers[0].proc.wait()
+            commit(stub, epoch, first, last)
+
+        reb._commit_with_retries = crash_then_commit
+        report = reb.move(0, 1)                                         # layer 2: A -> B
+        assert report.epoch == 2 and reb.layout == [(0, 2), (2, 6)]
+        assert sup.status()[0]["generation"] == 2                       # A was restarted ...
+        infos = pipe.check_layout(6)
+        assert [(i.first_layer, i.last_layer, i.epoch) for i in infos] == [(0, 2, 2), (2, 6, 2)]   # ... in the new layout
+        new_ids, _ = generate(pipe, "after-crash-mid-move", entry["prompt_ids"], 10)
+    assert new_ids == entry["new_ids"][:10]

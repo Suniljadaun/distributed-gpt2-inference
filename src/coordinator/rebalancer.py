@@ -117,20 +117,20 @@ class Rebalancer:
                     self._abort(receiver)                          # nothing changed anywhere: old layout stays
                     raise
                 # the receiver has the layer now; from here on we must finish, not abort
-                for k, stub in enumerate(self.pipe.stubs):
-                    if k == dst:
-                        continue
-                    first, last = new_src if k == src else self.layout[k]
-                    self._commit_with_retries(stub, epoch, first, last)
-                self.layout[src], self.layout[dst] = new_src, new_dst
+                new_layout = list(self.layout)
+                new_layout[src], new_layout[dst] = new_src, new_dst
+                if self.supervisor is not None:                    # BEFORE the other commits: a worker that crashes
+                    for k, (first, last) in enumerate(new_layout):  # now is restarted in the NEW layout and epoch,
+                        self.supervisor.update_spec(k, first=first, last=last, epoch=epoch)   # so the commit below
+                for k, stub in enumerate(self.pipe.stubs):         # (idempotent) still succeeds on it
+                    if k != dst:
+                        self._commit_with_retries(stub, epoch, *new_layout[k])
+                self.layout = new_layout
                 self.epoch = self.pipe.epoch = epoch
                 if self.log is not None:                           # still paused: the layout record comes
                     self.log.layout(epoch, self.layout)            # before any token of the new epoch
                 pause_ms = (time.perf_counter() - pause_start) * 1000
 
-            if self.supervisor is not None:                        # a restarted worker must come back like this
-                for k, (first, last) in enumerate(self.layout):
-                    self.supervisor.update_spec(k, first=first, last=last, epoch=epoch)
             kv_bytes = sum(len(s.k.data) + len(s.v.data) for s in exported.slices)
             report = MoveReport(layer, src, dst, epoch, prepare_ms, pause_ms, len(exported.slices), kv_bytes,
                                 tuple(self.layout))
@@ -148,14 +148,17 @@ class Rebalancer:
             pass                                                   # a dead worker has nothing prepared
 
     @staticmethod
-    def _commit_with_retries(stub, epoch: int, first: int, last: int) -> None:
-        for attempt in range(3):
+    def _commit_with_retries(stub, epoch: int, first: int, last: int, give_up_s: float = RPC_TIMEOUT_S) -> None:
+        """After the receiver's commit the move is decided: keep trying long enough for a crashed worker to be
+        restarted (it then comes back in the new layout, and the commit is idempotent)."""
+        deadline = time.monotonic() + give_up_s
+        while True:
             try:
                 stub.CommitLayout(pb.CommitLayoutRequest(epoch=epoch, first_layer=first, last_layer=last),
-                                  timeout=RPC_TIMEOUT_S)
+                                  timeout=min(RPC_TIMEOUT_S, max(0.5, deadline - time.monotonic())))
                 return
             except grpc.RpcError:
-                if attempt == 2:
+                if time.monotonic() >= deadline:
                     raise
                 time.sleep(0.2)
 
