@@ -14,7 +14,8 @@ generated token, any worker can crash mid-request, and the parts can run at diff
 sets the speed of the whole pipeline.
 
 This project builds an inference engine for GPT-2 (distilgpt2, 6 transformer blocks) from scratch in PyTorch,
-split layer-wise across two worker processes that exchange tensors over gRPC. A coordinator admits requests through a
+split layer-wise across worker processes (two by default, three also run and measured) that exchange tensors over
+gRPC. A coordinator admits requests through a
 bounded queue, drives token-by-token generation with a distributed KV-cache, and appends every committed token to an
 **append-only log**. When a worker crashes, it is restarted and its cache is rebuilt by **replaying the log**. Stale
 replies are **fenced** off by generation numbers and step ids. When one stage becomes slower, the coordinator
@@ -31,6 +32,8 @@ stopping service.
   output**; replaying 100 tokens takes **95 ms** vs 2.7 s to regenerate.
 - Dynamic rebalancing vs a static even split: **+17%** at steady state and **+45%** when one worker is slowed
   down.
+- Three workers on the same 6 cores: **51.8 → 57.0 tokens/s** for 8 concurrent requests after one automatic layer
+  move (2 workers: 48.3), at the cost of single-request speed (37.2 → 34.3 tokens/s, one more hop).
 
 ## 2. Goals and status
 
@@ -42,8 +45,9 @@ stopping service.
 | G4 Micro-batching, pipeline bubble | Done (continuous batching); stage idle time measured against the bubble model | `ForwardBatch`, `BatchingScheduler`; `test_ch11.py`; `throughput` and `bubble` experiments |
 | G5 Log-based crash recovery with fencing | Done | `supervisor.py`, `token_log.py`, `replay.py`; `test_ch12–14.py`; `recovery` experiment |
 | G6 Dynamic stage rebalancing | Done; the epoch is fenced on every call and recorded in the token log; the scope's imbalance-threshold trigger is implemented and measured against the model (§5.6) | `rebalancer.py`, layout RPCs; `test_ch15.py`; `rebalance` experiment |
+| Extendable to 3 workers | Done: run, tested and measured with 3 workers, in processes and in containers (§5.7) | `n_stage_layout`, `--stages 3`, `docker-compose.3workers.yml`; `test_ch18.py`; `stages` experiment |
 
-106 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
+109 automated tests, run on every push by GitHub Actions. Instructions to run the engine, the tests, the benchmark
 and the demo are in the repository's README.
 
 ## 3. Architecture
@@ -162,7 +166,9 @@ failure handling of §4.5–4.7 work in that setting:
 Measured from the host: the reference prompts match token for token across containers, and killing the worker
 process inside the `worker-b` container (`kill -9`) in the middle of a 100-token request is recovered by Docker's
 restart and one replay. The request took 7–8 s instead of ~3 s, and the output was identical to single-process
-inference. Lost requests: 0. GitHub Actions repeats this check on every push.
+inference. Lost requests: 0. With `docker-compose.3workers.yml` the same check runs with three worker containers,
+where the killed `worker-b` is the middle stage, and passes the same way (one replay, identical output). GitHub
+Actions repeats both checks on every push.
 
 The rebalancer is not enabled in this deployment: Docker restarts a worker with its original command, so after a
 layer move a restarted container would come back with the old layer range. Rebalancing (§4.8, §5.6) runs with the
@@ -208,8 +214,9 @@ supervisor, which restarts a worker with its current range.
 ## 5. Evaluation
 
 **Setup.** AMD Ryzen laptop (AMD64 Family 23 Model 104, 12 logical CPUs), Windows 11, Python 3.14.7, PyTorch 2.14.1
-CPU, gRPC 1.84.0, distilgpt2, greedy decoding, all processes on localhost. All numbers are from one benchmark run
-(commit `a2035fc`); the raw data, with the environment it ran in, is in `results/bench/`. Charts are drawn with
+CPU, gRPC 1.84.0, distilgpt2, greedy decoding, all processes on localhost. All numbers come from
+`python -m src.bench.run_all`; each experiment's raw data, with the commit and environment it ran in, is in
+`results/bench/`. Charts are drawn with
 Matplotlib; fits and confidence intervals are computed with NumPy.
 
 ### 5.1 Correctness
@@ -415,7 +422,43 @@ request's slice and replaying it from the token log (§4.6).
 
 *Figure 10. Pause of one layer move vs KV-cache migrated (log–log; labels are requests × cached tokens).*
 
-### 5.7 Threats to validity
+### 5.7 Three workers
+Nothing in the coordinator assumes two stages: the pipeline, layout check, supervisor and rebalancer loop over the
+stages, and the rebalancer already considers moves to both neighbours. `n_stage_layout(3)` starts A | B | C with
+layers 0-1 | 2-3 | 4-5 (`python -m src.coordinator.server --stages 3`). Tests check, with three workers: the
+reference outputs; layer moves in all four directions around the middle stage, in the middle of a request with its
+KV slices; a crash of the middle worker inside a logged request (one replay, identical output); and that the
+rebalancer moves a layer off a slowed-down middle worker.
+
+The `stages` experiment gives the same 6 cores to 1 process, 2 workers (3 cores each) or 3 workers (2 cores each).
+Each worker is a serial stage on cores of its own, and the coordinator runs on the other 6. It measures one request at a
+time (60 tokens) and 8 requests at once (30 tokens each), then runs the model-policy rebalancer on the 3 workers
+under that load for 25 s and measures the layout it settles on:
+
+| | layers | one request | 8 at once | stage compute per step | network per step |
+|---|---|---|---|---|---|
+| 1 process | 0-5 | 43.4 tok/s | – | 23.0 ms | – |
+| 2 workers | 0-2 / 3-5 | 37.2 tok/s | 48.3 tok/s | 7.9 / 15.7 ms | 3.2 ms |
+| 3 workers | 0-1 / 2-3 / 4-5 | 34.3 tok/s | 51.8 tok/s | 5.6 / 5.1 / 13.5 ms | 4.7 ms |
+| 3 workers, rebalanced | 0-1 / 2-4 / 5 | 29.3 tok/s | **57.0 tok/s** | 7.1 / 9.5 / 12.2 ms | 5.3 ms |
+
+All outputs were identical to the single process. One request is slower with every stage added: the stages still
+run one after another, and each hop adds about 1.5 ms of network and serialisation per token. With 8 requests in
+flight the stages overlap, so the slowest stage sets the rate. The even 2/2/2 split leaves C, which also holds the
+output layer, at 13.5 ms against about 5 ms for A and B: three workers gain only 7% over two. The rebalancer saw
+this under load (stages 7.4 / 7.0 / 18.1 ms) and moved layer 4 from C to B (pause 24 ms, 8 KV slices), predicting
+a bottleneck of 14.0 instead of 18.1 ms. That raised throughput by another 10% (51.8 → 57.0). It made one request
+slower again (B now runs three blocks), which is the right trade under load. C now holds a single block plus the
+output layer, so no layer move can shorten it further.
+
+![Three workers](../results/charts/stages.png)
+
+*Figure 11. Left: tokens/s for one request and for 8 at once. Right: one decode step, compute per stage (with its
+layers) and network overhead.*
+
+The engine also runs as three containers (§4.9).
+
+### 5.8 Threats to validity
 All processes share one laptop and talk over localhost, so network costs are far below a real cluster's.
 CPU frequency scaling and background programs add run-to-run variation of roughly ±5%; only differences well
 above that are claimed. The slowdown in §5.6 is injected (a fixed sleep per block), not a real co-located workload.
@@ -440,6 +483,7 @@ replicate it (e.g. with Raft). Layer moves need workers that the coordinator sta
 crashed coordinator (as in the Docker deployment) could be left at different epochs by an interrupted move, which a
 new coordinator detects but does not repair. Token logging currently works with the slot scheduler only, not with continuous
 batching. A layer move pauses all requests for about 11 ms per MB of KV-cache; with large caches the slices should
-be copied before the pause. Beyond that: a chain topology (A → B directly, one hop less per step), and more workers and the larger
-GPT-2, which the design supports but which were not measured.
+be copied before the pause. With three workers the output layer is the bottleneck (§5.7), so splitting it, or a
+larger GPT-2 with more blocks per stage, is where more workers would pay off. Beyond that: a chain topology (A → B → C
+directly, one hop less per stage per step), and the larger GPT-2, which the design supports but which was not measured.
 

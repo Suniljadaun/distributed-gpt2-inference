@@ -40,9 +40,11 @@ def main() -> None:
     print("containers:\n" + sh("docker", "compose", "ps", "--format", "  {{.Service}}  {{.Status}}"))
 
     print("\n1. Correctness across containers (G1)")
+    ok = True
     for i, e in enumerate(REFERENCE["entries"]):
         r = stub.Generate(pb.GenerateRequest(request_id=f"compose-ref-{time.time_ns()}-{i}", prompt_ids=e["prompt_ids"],
                                              max_new_tokens=REFERENCE["max_new_tokens"]), timeout=120)
+        ok &= list(r.new_ids) == e["new_ids"]
         print(f"  {e['prompt']!r}: {'MATCHES single-process' if list(r.new_ids) == e['new_ids'] else 'DIFFERENT'}")
 
     print("\n2. Crash inside a container (G5)")
@@ -64,6 +66,10 @@ def main() -> None:
     s = stub.Stats(pb.StatsRequest(), timeout=5)
     print(f"  coordinator: completed {s.completed}, replays {s.replays}, lost {s.lost}")
     channel.close()
+    ok &= list(r.new_ids) == expected
+    if not ok:                                                      # so that CI fails on a wrong answer
+        raise SystemExit("compose check FAILED: an output differs from single-process inference")
+    print("\ncompose check passed")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,76 @@
+{
+  "environment": {
+    "date": "2026-11-15T20:37:04",
+    "git_commit": "f4da79d",
+    "machine": "AMD64 Family 23 Model 104 Stepping 1, AuthenticAMD",
+    "logical_cpus": 12,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.7",
+    "torch": "2.14.1+cpu",
+    "grpc": "1.84.0"
+  },
+  "quick": false,
+  "seconds": 100.1,
+  "data": [
+    {
+      "config": "1 process",
+      "cores": "6",
+      "layers": "0-5",
+      "decode_ms": 23.0,
+      "tokens_per_s": 43.4,
+      "overhead_ms": 0.0,
+      "stage_ms": [
+        23.0
+      ],
+      "concurrent_tokens_per_s": null,
+      "outputs_match": true
+    },
+    {
+      "config": "2 workers",
+      "cores": "3 + 3",
+      "layers": "0-2 | 3-5",
+      "decode_ms": 26.9,
+      "tokens_per_s": 37.2,
+      "overhead_ms": 3.2,
+      "stage_ms": [
+        7.9,
+        15.7
+      ],
+      "concurrent_tokens_per_s": 48.3,
+      "outputs_match": true
+    },
+    {
+      "config": "3 workers",
+      "cores": "2 + 2 + 2",
+      "layers": "0-1 | 2-3 | 4-5",
+      "decode_ms": 29.1,
+      "tokens_per_s": 34.3,
+      "overhead_ms": 4.7,
+      "stage_ms": [
+        5.6,
+        5.1,
+        13.5
+      ],
+      "concurrent_tokens_per_s": 51.8,
+      "outputs_match": true
+    },
+    {
+      "config": "3 workers, rebalanced",
+      "cores": "2 + 2 + 2",
+      "layers": "0-1 | 2-4 | 5-5",
+      "decode_ms": 34.2,
+      "tokens_per_s": 29.3,
+      "overhead_ms": 5.3,
+      "stage_ms": [
+        7.1,
+        9.5,
+        12.2
+      ],
+      "concurrent_tokens_per_s": 57.0,
+      "outputs_match": true,
+      "moves": [
+        "layer 4: C -> B"
+      ]
+    }
+  ]
+}

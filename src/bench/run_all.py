@@ -30,7 +30,7 @@ from src.bench.svg import bar_chart, line_chart
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
 ALL = ["reference", "kv_cache", "token_latency", "split_sweep", "wire", "throughput", "bubble", "load", "recovery",
-       "rebalance", "kv_migration"]
+       "rebalance", "kv_migration", "stages"]
 
 
 def environment() -> dict:
@@ -67,6 +67,8 @@ def run_experiment(name: str, quick: bool):
         return ex.token_latency(50480, runs=4 if quick else 10)
     if name == "kv_migration":
         return ex.kv_migration(50470, repeats=2 if quick else 3)
+    if name == "stages":
+        return ex.stages(50500, runs=2 if quick else 3, rebalance_s=12.0 if quick else 25.0)
     raise ValueError(f"unknown experiment {name!r}")
 
 
@@ -126,6 +128,23 @@ def analysis(name: str, data) -> str:
                 lines.append(f"Moves ({policy}): " + "; ".join(f"t={m['t']} s {m['event'].split(':')[0]}"
                                                                for m in moves))
         return "\n".join(lines)
+    if name == "stages":
+        rows = {r["config"]: r for r in data}
+        one, two, three = rows["1 process"], rows["2 workers"], rows["3 workers"]
+        lines = [f"All outputs identical to the single process: **{all(r['outputs_match'] for r in data)}**.",
+                 f"One request: each hop costs latency; overhead per step {two['overhead_ms']} ms with 2 workers, "
+                 f"{three['overhead_ms']} ms with 3 (1 process: {one['tokens_per_s']} tok/s).",
+                 f"8 at once: 3 workers {three['concurrent_tokens_per_s']} vs 2 workers "
+                 f"{two['concurrent_tokens_per_s']} tok/s "
+                 f"({three['concurrent_tokens_per_s'] / two['concurrent_tokens_per_s'] - 1:+.0%}); "
+                 f"slowest stage {max(two['stage_ms'])} -> {max(three['stage_ms'])} ms."]
+        if "3 workers, rebalanced" in rows:
+            reb = rows["3 workers, rebalanced"]
+            lines.append(f"Rebalancer on 3 workers: {', '.join(reb['moves']) or 'no move'} -> layers {reb['layers']}; "
+                         f"8 at once {three['concurrent_tokens_per_s']} -> {reb['concurrent_tokens_per_s']} tok/s "
+                         f"({reb['concurrent_tokens_per_s'] / three['concurrent_tokens_per_s'] - 1:+.0%}), "
+                         f"one request {three['tokens_per_s']} -> {reb['tokens_per_s']} tok/s.")
+        return "\n".join(lines)
     return ""
 
 
@@ -149,6 +168,9 @@ def summary_section(name: str, data) -> str:
                                    for k, v in data["step_ms"].items()])))
     if name == "token_latency":
         return table(data["rows"])
+    if name == "stages":
+        return table([{k: ("–" if v is None else ", ".join(v) if k == "moves" else
+                           v.replace("|", "/") if k == "layers" else v) for k, v in r.items()} for r in data])
     if name == "recovery":
         replay = table(data["replay"])
         rest = {k: v for k, v in data.items() if k != "replay"}

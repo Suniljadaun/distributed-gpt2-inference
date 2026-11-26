@@ -45,6 +45,16 @@ def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -
     ]
 
 
+def n_stage_layout(n_stages: int, base_port: int = 50061, n_layer: int = 6) -> list[WorkerSpec]:
+    """Ch 18: n workers A, B, C, ... with the layers split as evenly as possible (3 stages: 0-1 | 2-3 | 4-5).
+    Nothing else depends on the number of stages: Pipeline.step, check_layout, the supervisor and the
+    rebalancer all loop over the stages."""
+    if not 1 <= n_stages <= n_layer:
+        raise ValueError(f"need 1..{n_layer} stages, got {n_stages}")
+    bounds = [k * n_layer // n_stages for k in range(n_stages + 1)]
+    return layout_from_ranges(list(zip(bounds, bounds[1:])), base_port=base_port)
+
+
 def layout_from_ranges(ranges, epoch: int = 1, base_port: int = 50061) -> list[WorkerSpec]:
     """Workers A, B, ... for the given (first, last) layer ranges, e.g. the latest layout in the token log."""
     return [WorkerSpec(chr(ord("A") + k), base_port + k, first, last, embed=k == 0, head=k == len(ranges) - 1,

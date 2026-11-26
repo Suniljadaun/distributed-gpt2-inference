@@ -131,6 +131,10 @@ def test_matplotlib_writes_every_chart(tmp_path):
                          for r in (1, 4) for c in (64, 512)],
         "rebalance": _timeline([46, 48, 48, 48, 48, 30, 26, 26, 26], [44, 53, 53, 53, 53, 30, 38, 38, 38],
                                [10, 10, 10, 10, 10, 10.5, 35, 35, 35]),
+        "stages": [{"config": "1 process", "layers": "0-5", "tokens_per_s": 43.0, "overhead_ms": 0.0,
+                    "stage_ms": [23.0], "concurrent_tokens_per_s": None},
+                   {"config": "3 workers", "layers": "0-1 | 2-3 | 4-5", "tokens_per_s": 34.0, "overhead_ms": 4.7,
+                    "stage_ms": [5.6, 5.1, 13.5], "concurrent_tokens_per_s": 52.0}],
     }
     for name, d in data.items():
         path = plots.draw(name, d, tmp_path)
@@ -300,8 +304,116 @@ def test_sender_crash_between_the_commits_still_completes_the_move():
         reb._commit_with_retries = crash_then_commit
         report = reb.move(0, 1)                                         # layer 2: A -> B
         assert report.epoch == 2 and reb.layout == [(0, 2), (2, 6)]
+        # the retried commit can reach the new A before the supervisor has marked it UP and moved the pipeline's
+        # fence to generation 2; a step sent in between would be (correctly) refused as stale. Wait for UP.
+        assert sup.wait_all_up(30)
         assert sup.status()[0]["generation"] == 2                       # A was restarted ...
         infos = pipe.check_layout(6)
         assert [(i.first_layer, i.last_layer, i.epoch) for i in infos] == [(0, 2, 2), (2, 6, 2)]   # ... in the new layout
         new_ids, _ = generate(pipe, "after-crash-mid-move", entry["prompt_ids"], 10)
     assert new_ids == entry["new_ids"][:10]
+
+
+# ---------------- three workers (any number of stages) ----------------
+
+def test_n_stage_layout_covers_every_layer_once():
+    from src.coordinator.cluster import n_stage_layout
+    assert [(s.first, s.last) for s in n_stage_layout(3)] == [(0, 2), (2, 4), (4, 6)]
+    for n in range(1, 7):
+        layout = n_stage_layout(n, base_port=50000)
+        assert [s.worker_id for s in layout] == [chr(ord("A") + k) for k in range(n)]
+        assert layout[0].first == 0 and layout[-1].last == 6
+        assert all(a.last == b.first for a, b in zip(layout, layout[1:])) and all(s.last > s.first for s in layout)
+        assert [s.embed for s in layout] == [k == 0 for k in range(n)]
+        assert [s.head for s in layout] == [k == n - 1 for k in range(n)]
+        assert [s.port for s in layout] == list(range(50000, 50000 + n))
+    with pytest.raises(ValueError):
+        n_stage_layout(7)
+
+
+def _reference():
+    import json
+    from src.reference import REFERENCE_FILE
+    return json.loads(REFERENCE_FILE.read_text(encoding="utf-8"))
+
+
+def test_three_workers_moves_around_the_middle_and_a_middle_crash():
+    """A | B | C = 0-1 | 2-3 | 4-5. Layer moves in all four directions in the middle of a request (KV slices
+    move too), then the MIDDLE worker crashes inside a logged request: every output must equal the reference."""
+    import tempfile
+    import threading
+    from pathlib import Path
+    from src.coordinator.cluster import n_stage_layout
+    from src.coordinator.pipeline import generate
+    from src.coordinator.replay import generate_logged
+    from src.coordinator.token_log import TokenLog
+    ref = _reference()
+    entries, n = ref["entries"], ref["max_new_tokens"]
+    with supervised_cluster(n_stage_layout(3, base_port=50671)) as (pipe, sup):
+        for i, e in enumerate(entries):                                 # plain generation through 3 hops
+            assert generate(pipe, f"three-{i}", e["prompt_ids"], n)[0] == e["new_ids"]
+        reb = Rebalancer(pipe, supervisor=sup)
+        assert reb.layout == [(0, 2), (2, 4), (4, 6)]
+        e = entries[0]
+        tok, _ = pipe.step("m3", 0, e["prompt_ids"], 0)
+        out, pos = [tok], len(e["prompt_ids"])
+        moves = {3: (1, 2), 6: (0, 1), 9: (2, 1), 12: (1, 0)}           # B->C, A->B, C->B, B->A
+        layouts = []
+        for s in range(1, n):
+            if s in moves:
+                report = reb.move(*moves[s])
+                assert report.kv_requests == 1
+                layouts.append(list(reb.layout))
+            tok, _ = pipe.step("m3", s, [tok], pos)
+            out.append(tok)
+            pos += 1
+        pipe.release("m3")
+        assert out == e["new_ids"]
+        assert layouts == [[(0, 2), (2, 3), (3, 6)], [(0, 1), (1, 3), (3, 6)],
+                           [(0, 1), (1, 4), (4, 6)], [(0, 2), (2, 4), (4, 6)]]
+        assert [(i.first_layer, i.last_layer, i.epoch) for i in pipe.check_layout(6)] == \
+            [(0, 2, 5), (2, 4, 5), (4, 6, 5)]
+
+        calm, _ = generate(pipe, "calm", e["prompt_ids"], 100)          # ~3 s: the crash lands inside it
+        with tempfile.TemporaryDirectory() as d:
+            log = TokenLog(Path(d) / "log.jsonl")
+            result = {}
+            t = threading.Thread(target=lambda: result.setdefault(
+                "r", generate_logged(pipe, log, "middle-crash", e["prompt_ids"], 100, health=sup)))
+            t.start()
+            time.sleep(1.0)
+            sup.kill(1)                                                 # B, the middle worker
+            t.join()
+            log.close()
+        assert sup.status()[1]["generation"] == 2
+        assert result["r"].replays >= 1 and result["r"].new_ids == calm
+
+
+def test_rebalancer_moves_a_layer_off_a_slow_middle_worker():
+    """The model policy compares moving left and moving right; with B slow, the first move must take a layer
+    away from B (to A or C), and generation must still match the reference."""
+    import threading
+    from src.coordinator.cluster import WorkerSpec, n_stage_layout, running_cluster
+    from src.coordinator.pipeline import generate
+    ref = _reference()
+    a, b, c = n_stage_layout(3, base_port=50675)
+    slow_b = WorkerSpec(b.worker_id, b.port, b.first, b.last, extra_args=("--block-delay-ms", "12"))
+    with running_cluster([a, slow_b, c]) as p:
+        reb = Rebalancer(p, period_s=0.5, window_s=2.0, cooldown_s=2.5, min_samples=10)
+        reb.start()
+        stop = time.monotonic() + 25
+
+        def load() -> None:
+            k = 0
+            while time.monotonic() < stop and not reb.moves:
+                generate(p, f"load-{k}", ref["entries"][k % 3]["prompt_ids"], 30)
+                k += 1
+
+        t = threading.Thread(target=load)
+        t.start()
+        t.join()
+        reb.stop()
+        assert reb.moves and reb.moves[0].src == 1 and reb.moves[0].dst in (0, 2)
+        assert reb.layout[1][1] - reb.layout[1][0] == 1                 # slow B kept one layer
+        e = ref["entries"][2]
+        assert generate(p, "after-auto-3", e["prompt_ids"], ref["max_new_tokens"])[0] == e["new_ids"]

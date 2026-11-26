@@ -1,0 +1,33 @@
+# Three workers instead of two (Ch 18): layers 0-1 | 2-3 | 4-5, one container each, on top of docker-compose.yml.
+#   docker compose -f docker-compose.yml -f docker-compose.3workers.yml up -d --build
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.3workers.yml python -m playground.ch17.compose_check
+#     (PowerShell: $env:COMPOSE_FILE = "docker-compose.yml;docker-compose.3workers.yml")
+#   docker compose -f docker-compose.yml -f docker-compose.3workers.yml down -v
+# The check kills worker-b, which is now the MIDDLE stage: it gets input from A and sends output to C.
+
+services:
+  worker-a:
+    command: >-
+      python -m src.worker.server --worker-id A --host 0.0.0.0 --port 50051
+      --first 0 --last 2 --embed --generation 0 --threads 2
+
+  worker-b:
+    command: >-
+      python -m src.worker.server --worker-id B --host 0.0.0.0 --port 50052
+      --first 2 --last 4 --generation 0 --threads 2
+
+  worker-c:
+    build: .
+    image: dist-gpt2-inference:latest
+    init: true
+    restart: unless-stopped
+    cpus: 2
+    command: >-
+      python -m src.worker.server --worker-id C --host 0.0.0.0 --port 50053
+      --first 4 --last 6 --head --generation 0 --threads 2
+
+  coordinator:
+    depends_on: [worker-a, worker-b, worker-c]
+    command: >-
+      python -m src.coordinator.server --host 0.0.0.0 --port 50060
+      --workers worker-a:50051,worker-b:50052,worker-c:50053 --slots 4 --queue-size 8 --log /data/token_log.jsonl

@@ -348,6 +348,112 @@ def rebalance(quick: bool) -> dict:
             "moves": {name: [{"t": t, "event": text} for t, text in moves] for name, (_, moves) in runs.items()}}
 
 
+def stages(base_port: int, tokens: int = 60, runs: int = 3, clients: int = 8, client_tokens: int = 30,
+           rebalance_s: float = 25.0) -> list[dict]:
+    """Ch 18 (scope: "extendable to 3 workers"): the same 6 cores as 1 process, 2 workers (3 cores each) or
+    3 workers (2 cores each). Each worker is a serial stage on cores of its own; the coordinator and its clients
+    run on the other cores. Per config: one request at a time (latency) and `clients` requests at once
+    (pipelining). Every output is checked against the single-process one. Then the rebalancer runs on the
+    3 workers under that load for `rebalance_s` seconds, and the layout it settles on is measured again."""
+    import os
+    from src.coordinator.cluster import n_stage_layout
+    from src.worker.server import pin_to_cpus
+    n_cpu = os.cpu_count() or 1
+    pin = n_cpu >= 8                                                # else: no pinning (e.g. a 4-core CI runner)
+    prompts = [PROMPT, [464, 2068, 7586, 21831, 18045], [40, 1842, 284, 2193, 546]]
+    model = load_pretrained()
+    threads_before = torch.get_num_threads()
+    if pin:
+        pin_to_cpus(list(range(6)))
+    torch.set_num_threads(6)
+
+    def single(ids: list[int], n: int) -> tuple[list[int], list[float]]:
+        cache, feed, out, ms = KVCache(), list(ids), [], []
+        for _ in range(n):
+            t0 = time.perf_counter()
+            tok = cached_step(model, cache, feed)
+            ms.append((time.perf_counter() - t0) * 1000)
+            out.append(tok)
+            feed = [tok]
+        return out, ms
+
+    single(PROMPT, 5)                                               # warm-up
+    expected = {i: single(pr, max(tokens, client_tokens))[0] for i, pr in enumerate(prompts)}
+    step = [statistics.median(single(PROMPT, tokens)[1][1:]) for _ in range(runs)]
+    rows = [{"config": "1 process", "cores": "6", "layers": "0-5", "decode_ms": round(statistics.median(step), 1),
+             "tokens_per_s": round(1000 / statistics.median(step), 1), "overhead_ms": 0.0,
+             "stage_ms": [round(statistics.median(step), 1)], "concurrent_tokens_per_s": None, "outputs_match": True}]
+    torch.set_num_threads(threads_before)
+    if pin:
+        pin_to_cpus(list(range(6, n_cpu)))                          # coordinator + clients: not on the workers' cores
+
+    def measure(pipe, config: str, cores: str, layers: list[tuple[int, int]]) -> dict:
+        ok, step, over, comp, rates = True, [], [], [], []
+        for r in range(runs):
+            out, timings = generate(pipe, f"{config}-single-{r}", PROMPT, tokens)
+            ok &= out == expected[0][:tokens]
+            step.append(statistics.median(t.total_ms for t in timings[1:]))
+            over.append(statistics.median(t.overhead_ms for t in timings[1:]))
+            comp.append([statistics.median(t.compute_ms[k] for t in timings[1:]) for k in range(len(layers))])
+        for r in range(runs):
+            outs = [None] * clients
+
+            def client(i: int) -> None:
+                outs[i] = generate(pipe, f"{config}-c{r}-{i}", prompts[i % 3], client_tokens)[0]
+
+            threads = [threading.Thread(target=client, args=(i,)) for i in range(clients)]
+            t0 = time.perf_counter()
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            rates.append(clients * client_tokens / (time.perf_counter() - t0))
+            ok &= all(o == expected[i % 3][:client_tokens] for i, o in enumerate(outs))
+        return {"config": config, "cores": cores, "layers": " | ".join(f"{f}-{l - 1}" for f, l in layers),
+                "decode_ms": round(statistics.median(step), 1), "tokens_per_s": round(1000 / statistics.median(step), 1),
+                "overhead_ms": round(statistics.median(over), 1),
+                "stage_ms": [round(statistics.median(c[k] for c in comp), 1) for k in range(len(layers))],
+                "concurrent_tokens_per_s": round(statistics.median(rates), 1), "outputs_match": ok}
+
+    try:
+        for n_stages, port in ((2, base_port), (3, base_port + 3)):
+            per = 6 // n_stages
+            cores = " + ".join([str(per)] * n_stages)
+            layout = [WorkerSpec(s.worker_id, s.port, s.first, s.last, embed=s.embed, head=s.head,
+                                 extra_args=("--serial", "--threads", str(per))
+                                 + (("--cpus", ",".join(str(c) for c in range(k * per, (k + 1) * per))) if pin else ()))
+                      for k, s in enumerate(n_stage_layout(n_stages, base_port=port))]
+            with running_cluster(layout) as pipe:
+                for k in range(3):
+                    generate(pipe, f"warm-{k}", PROMPT, 5)
+                rows.append(measure(pipe, f"{n_stages} workers", cores, [(s.first, s.last) for s in layout]))
+                if n_stages == 3:                                   # let the rebalancer find a better split
+                    from src.coordinator.rebalancer import Rebalancer
+                    reb = Rebalancer(pipe, period_s=0.5, window_s=2.0, cooldown_s=2.5, min_samples=15)
+                    reb.start()
+                    stop = time.monotonic() + rebalance_s
+
+                    def load(i: int) -> None:
+                        k = 0
+                        while time.monotonic() < stop:
+                            generate(pipe, f"reb-{i}-{k}", prompts[i % 3], client_tokens)
+                            k += 1
+
+                    threads = [threading.Thread(target=load, args=(i,)) for i in range(clients)]
+                    for t in threads:
+                        t.start()
+                    for t in threads:
+                        t.join()
+                    reb.stop()
+                    row = measure(pipe, "3 workers, rebalanced", cores, reb.layout)
+                    row["moves"] = [f"layer {m.layer}: {'ABC'[m.src]} -> {'ABC'[m.dst]}" for m in reb.moves]
+                    rows.append(row)
+    finally:
+        if pin:
+            pin_to_cpus(list(range(n_cpu)))
+    return rows
+
+
 def reference_check(base_port: int) -> dict:
     """G1: the distributed engine still reproduces results/reference.json token for token."""
     reference = json.loads(REFERENCE_FILE.read_text(encoding="utf-8"))

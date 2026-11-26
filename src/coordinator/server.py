@@ -11,7 +11,7 @@ from concurrent import futures
 
 import grpc
 
-from src.coordinator.cluster import layout_from_ranges, supervised_cluster, two_stage_layout
+from src.coordinator.cluster import layout_from_ranges, n_stage_layout, supervised_cluster
 from src.coordinator.pipeline import Pipeline
 from src.coordinator.scheduler import BatchingScheduler, Job, Scheduler
 from src.coordinator.token_log import TokenLog
@@ -111,6 +111,8 @@ def main() -> None:
     parser.add_argument("--workers", default="",
                         help="Ch 17: connect to running workers, e.g. worker-a:50051,worker-b:50052 (in stage order), "
                              "instead of starting them; restarts are then someone else's job (e.g. Docker)")
+    parser.add_argument("--stages", type=int, default=2,
+                        help="Ch 18: number of workers to start (layers split evenly; 3 = 0-1 | 2-3 | 4-5)")
     parser.add_argument("--rebalance", action="store_true",
                         help="Ch 15: run the rebalancer (not with --workers); with --log, layouts are logged too")
     args = parser.parse_args()
@@ -127,7 +129,7 @@ def main() -> None:
         print(f"[coordinator] log: layout epoch {epoch}, layers {ranges}", flush=True)
         cluster = supervised_cluster(layout_from_ranges(ranges, epoch))
     else:
-        cluster = supervised_cluster(two_stage_layout())
+        cluster = supervised_cluster(n_stage_layout(args.stages))
     with cluster as (pipe, health):
         rebalancer = None
         if args.rebalance:

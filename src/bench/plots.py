@@ -205,9 +205,44 @@ def token_latency(data: dict, out: Path) -> None:
     _save(fig, out / "token_latency.png")
 
 
+def stages(data: list[dict], out: Path) -> None:
+    """Ch 18: 1 process vs 2 vs 3 workers on the same 6 cores; right: where each decode step's time goes."""
+    fig, (left, right) = plt.subplots(1, 2, figsize=(9.6, 4.0), gridspec_kw={"width_ratios": [1.15, 1]})
+    labels = [r["config"].replace(", ", ",\n") for r in data]
+    x = np.arange(len(data))
+    for k, (key, name, colour) in enumerate((("tokens_per_s", "1 request", BLUE),
+                                            ("concurrent_tokens_per_s", "8 at once", GREEN))):
+        values = [r[key] or 0 for r in data]
+        bars = left.bar(x + (k - 0.5) * 0.38, values, 0.38, label=name, color=colour)
+        left.bar_label(bars, labels=[f"{v:.1f}" if v else "–" for v in values], fontsize=8, padding=2)
+    left.set_xticks(x, labels, fontsize=8.5)
+    left.set(title="Tokens/s on the same 6 cores", ylabel="tokens/s")
+    left.set_ylim(0, max(r["concurrent_tokens_per_s"] or r["tokens_per_s"] for r in data) * 1.22)
+    left.legend(loc="upper left", fontsize=8.5)
+    colours = (BLUE, RED, "#f59e0b")
+    for i, r in enumerate(data):
+        bottom = 0.0
+        ranges = r["layers"].split(" | ")
+        for k, ms in enumerate(r["stage_ms"]):
+            right.bar(i, ms, 0.6, bottom=bottom, color=colours[k] if len(r["stage_ms"]) > 1 else GREY,
+                      edgecolor="white", linewidth=0.8)
+            name = "ABC"[k] if len(r["stage_ms"]) > 1 else "all"
+            right.text(i, bottom + ms / 2, f"{name} {ranges[k]}\n{ms:.1f} ms", ha="center", va="center",
+                       fontsize=7, color="white")
+            bottom += ms
+        if r["overhead_ms"]:
+            right.bar(i, r["overhead_ms"], 0.6, bottom=bottom, color="#d0d0d0", edgecolor="white", linewidth=0.8)
+            right.text(i, bottom + r["overhead_ms"] + 0.4, f"+{r['overhead_ms']:.1f} ms\nnetwork", ha="center",
+                       va="bottom", fontsize=7)
+    right.set_xticks(x, labels, fontsize=8.5)
+    right.set(title="One decode step: compute per stage (layers)", ylabel="ms")
+    right.set_ylim(0, max(sum(r["stage_ms"]) + r["overhead_ms"] for r in data) * 1.25)
+    _save(fig, out / "stages.png")
+
+
 DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
         "wire": wire, "rebalance": rebalance, "bubble": bubble, "kv_migration": kv_migration,
-        "token_latency": token_latency}
+        "token_latency": token_latency, "stages": stages}
 FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
 
 
