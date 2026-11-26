@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import grpc
 import torch
 
+from src.model.config import config_for
 from src.proto import inference_pb2 as pb
 from src.proto import inference_pb2_grpc as pb_grpc
 from src.proto.tensor_codec import tensor_to_proto
@@ -137,9 +138,15 @@ class Pipeline:
             except grpc.FutureTimeoutError:
                 raise RuntimeError(f"worker at {address} did not become ready in {timeout_s} s") from None
 
-    def check_layout(self, n_layer: int) -> list[pb.InfoReply]:
-        """The stages must cover layers 0..n_layer-1 exactly once, in order, embed first, head last."""
+    def check_layout(self, n_layer: int | None = None) -> list[pb.InfoReply]:
+        """The stages must run the same model and cover its layers 0..n_layer-1 exactly once, in order, embed first,
+        head last. n_layer=None: the model's own depth (Ch 18: distilgpt2 6, gpt2 12)."""
         infos = [stub.Info(pb.InfoRequest(), timeout=self.timeout_s) for stub in self.stubs]
+        models = {info.model for info in infos}
+        if len(models) != 1:
+            raise RuntimeError(f"workers run different models: {sorted(models)}")
+        if n_layer is None:
+            n_layer = config_for(models.pop() or "distilgpt2").n_layer
         expected_first = 0
         for i, info in enumerate(infos):
             if info.first_layer != expected_first:

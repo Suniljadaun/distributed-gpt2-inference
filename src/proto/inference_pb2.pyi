@@ -183,7 +183,7 @@ class InfoRequest(_message.Message):
     def __init__(self) -> None: ...
 
 class InfoReply(_message.Message):
-    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes", "generation", "epoch")
+    __slots__ = ("worker_id", "first_layer", "last_layer", "has_embed", "has_head", "pid", "param_bytes", "cached_requests", "kv_bytes", "generation", "epoch", "model")
     WORKER_ID_FIELD_NUMBER: _ClassVar[int]
     FIRST_LAYER_FIELD_NUMBER: _ClassVar[int]
     LAST_LAYER_FIELD_NUMBER: _ClassVar[int]
@@ -195,6 +195,7 @@ class InfoReply(_message.Message):
     KV_BYTES_FIELD_NUMBER: _ClassVar[int]
     GENERATION_FIELD_NUMBER: _ClassVar[int]
     EPOCH_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
     worker_id: str
     first_layer: int
     last_layer: int
@@ -206,7 +207,8 @@ class InfoReply(_message.Message):
     kv_bytes: int
     generation: int
     epoch: int
-    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ..., generation: _Optional[int] = ..., epoch: _Optional[int] = ...) -> None: ...
+    model: str
+    def __init__(self, worker_id: _Optional[str] = ..., first_layer: _Optional[int] = ..., last_layer: _Optional[int] = ..., has_embed: _Optional[bool] = ..., has_head: _Optional[bool] = ..., pid: _Optional[int] = ..., param_bytes: _Optional[int] = ..., cached_requests: _Optional[int] = ..., kv_bytes: _Optional[int] = ..., generation: _Optional[int] = ..., epoch: _Optional[int] = ..., model: _Optional[str] = ...) -> None: ...
 
 class ReleaseRequest(_message.Message):
     __slots__ = ("request_id",)

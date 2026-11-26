@@ -1,6 +1,6 @@
 # Build Plan — Log-Structured Distributed LLM Inference Engine with Dynamic Stage Rebalancing
 
-**Assignment:** Project 55 (student-proposed), Sunil Kumar K, 2025201099, individual.
+**Assignment:** Project 55 (student-proposed), Sunil Kumar, 2025201099, individual.
 **Scope report:** `report/Project_Scope_Report.pdf` (due 17 Oct 2026). This plan delivers exactly what it promises.
 
 ## What we're building (one paragraph)

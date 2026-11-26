@@ -129,7 +129,7 @@ def remote_cluster(addresses: list[str], **options) -> Iterator[tuple[Pipeline, 
         pipe.set_expected(i, s["generation"])           # and follow every restart
     health.listeners.append(pipe.set_expected)
     try:
-        pipe.check_layout(n_layer=6)
+        pipe.check_layout()
         yield pipe, health
     finally:
         pipe.close()

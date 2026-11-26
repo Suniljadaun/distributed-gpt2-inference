@@ -30,7 +30,7 @@ from src.bench.svg import bar_chart, line_chart
 ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "results"
 ALL = ["reference", "kv_cache", "token_latency", "split_sweep", "wire", "throughput", "bubble", "load", "recovery",
-       "rebalance", "kv_migration", "stages"]
+       "rebalance", "kv_migration", "stages", "stages_gpt2"]
 
 
 def environment() -> dict:
@@ -68,7 +68,10 @@ def run_experiment(name: str, quick: bool):
     if name == "kv_migration":
         return ex.kv_migration(50470, repeats=2 if quick else 3)
     if name == "stages":
-        return ex.stages(50500, runs=2 if quick else 3, rebalance_s=12.0 if quick else 25.0)
+        return ex.stages(50500, runs=2 if quick else 3, rebalance_s=12.0 if quick else 25.0, rest_s=5.0 if quick else 20.0)
+    if name == "stages_gpt2":                                   # GPT-2 small, 12 layers (needs its weights)
+        return ex.stages(50520, runs=2 if quick else 3, rebalance_s=12.0 if quick else 25.0, model_name="gpt2",
+                         rest_s=5.0 if quick else 20.0)
     raise ValueError(f"unknown experiment {name!r}")
 
 
@@ -128,7 +131,7 @@ def analysis(name: str, data) -> str:
                 lines.append(f"Moves ({policy}): " + "; ".join(f"t={m['t']} s {m['event'].split(':')[0]}"
                                                                for m in moves))
         return "\n".join(lines)
-    if name == "stages":
+    if name in ("stages", "stages_gpt2"):
         rows = {r["config"]: r for r in data}
         one, two, three = rows["1 process"], rows["2 workers"], rows["3 workers"]
         lines = [f"All outputs identical to the single process: **{all(r['outputs_match'] for r in data)}**.",
@@ -168,7 +171,7 @@ def summary_section(name: str, data) -> str:
                                    for k, v in data["step_ms"].items()])))
     if name == "token_latency":
         return table(data["rows"])
-    if name == "stages":
+    if name in ("stages", "stages_gpt2"):
         return table([{k: ("–" if v is None else ", ".join(v) if k == "moves" else
                            v.replace("|", "/") if k == "layers" else v) for k, v in r.items()} for r in data])
     if name == "recovery":

@@ -21,3 +21,13 @@ class GPTConfig:
     @property
     def d_ff(self) -> int:
         return 4 * self.d_model              # 3072: MLP inner width
+
+
+# Ch 18: the two models of the family the engine runs. Same width, heads, vocabulary and tokenizer; only depth differs.
+MODELS = {"distilgpt2": GPTConfig(), "gpt2": GPTConfig(n_layer=12)}
+
+
+def config_for(name: str) -> GPTConfig:
+    if name not in MODELS:
+        raise ValueError(f"unknown model {name!r}; known: {', '.join(MODELS)}")
+    return MODELS[name]

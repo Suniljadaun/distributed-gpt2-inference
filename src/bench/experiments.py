@@ -3,6 +3,7 @@ experiments.py - Chapter 16
 Every measurement the report needs, as functions that RETURN data (no printing, no charts).
 Most reuse the experiment code written in earlier chapters' playground scripts.
 """
+import dataclasses
 import json
 import statistics
 import tempfile
@@ -349,19 +350,20 @@ def rebalance(quick: bool) -> dict:
 
 
 def stages(base_port: int, tokens: int = 60, runs: int = 3, clients: int = 8, client_tokens: int = 30,
-           rebalance_s: float = 25.0) -> list[dict]:
+           rebalance_s: float = 25.0, model_name: str = "distilgpt2", rest_s: float = 20.0) -> list[dict]:
     """Ch 18 (scope: "extendable to 3 workers"): the same 6 cores as 1 process, 2 workers (3 cores each) or
     3 workers (2 cores each). Each worker is a serial stage on cores of its own; the coordinator and its clients
     run on the other cores. Per config: one request at a time (latency) and `clients` requests at once
     (pipelining). Every output is checked against the single-process one. Then the rebalancer runs on the
-    3 workers under that load for `rebalance_s` seconds, and the layout it settles on is measured again."""
+    3 workers under that load for `rebalance_s` seconds, and the layout it settles on is measured like the rest.
+    model_name: "distilgpt2" (6 layers) or "gpt2" (12 layers, GPT-2 small)."""
     import os
-    from src.coordinator.cluster import n_stage_layout
+    from src.coordinator.cluster import layout_from_ranges, n_stage_layout
     from src.worker.server import pin_to_cpus
     n_cpu = os.cpu_count() or 1
     pin = n_cpu >= 8                                                # else: no pinning (e.g. a 4-core CI runner)
     prompts = [PROMPT, [464, 2068, 7586, 21831, 18045], [40, 1842, 284, 2193, 546]]
-    model = load_pretrained()
+    model = load_pretrained(model_name)
     threads_before = torch.get_num_threads()
     if pin:
         pin_to_cpus(list(range(6)))
@@ -380,7 +382,7 @@ def stages(base_port: int, tokens: int = 60, runs: int = 3, clients: int = 8, cl
     single(PROMPT, 5)                                               # warm-up
     expected = {i: single(pr, max(tokens, client_tokens))[0] for i, pr in enumerate(prompts)}
     step = [statistics.median(single(PROMPT, tokens)[1][1:]) for _ in range(runs)]
-    rows = [{"config": "1 process", "cores": "6", "layers": "0-5", "decode_ms": round(statistics.median(step), 1),
+    rows = [{"config": "1 process", "cores": "6", "layers": f"0-{model.cfg.n_layer - 1}", "decode_ms": round(statistics.median(step), 1),
              "tokens_per_s": round(1000 / statistics.median(step), 1), "overhead_ms": 0.0,
              "stage_ms": [round(statistics.median(step), 1)], "concurrent_tokens_per_s": None, "outputs_match": True}]
     torch.set_num_threads(threads_before)
@@ -415,39 +417,49 @@ def stages(base_port: int, tokens: int = 60, runs: int = 3, clients: int = 8, cl
                 "stage_ms": [round(statistics.median(c[k] for c in comp), 1) for k in range(len(layers))],
                 "concurrent_tokens_per_s": round(statistics.median(rates), 1), "outputs_match": ok}
 
+    def workers(ranges: list[tuple[int, int]], port: int) -> list[WorkerSpec]:
+        per = 6 // len(ranges)
+        return [dataclasses.replace(s, extra_args=("--serial", "--threads", str(per))
+                                    + (("--cpus", ",".join(str(c) for c in range(k * per, (k + 1) * per))) if pin else ()))
+                for k, s in enumerate(layout_from_ranges(ranges, base_port=port, model=model_name))]
+
+    def measured(config: str, ranges: list[tuple[int, int]], port: int) -> dict:
+        """Every row the same way: fresh workers, warm-up, a rest (a laptop measured right after heavy load is
+        ~14% slower: heat), then the measurement."""
+        with running_cluster(workers(ranges, port)) as pipe:
+            for k in range(3):
+                generate(pipe, f"warm-{k}", PROMPT, 5)
+            time.sleep(rest_s)
+            return measure(pipe, config, " + ".join([str(6 // len(ranges))] * len(ranges)), ranges)
+
     try:
-        for n_stages, port in ((2, base_port), (3, base_port + 3)):
-            per = 6 // n_stages
-            cores = " + ".join([str(per)] * n_stages)
-            layout = [WorkerSpec(s.worker_id, s.port, s.first, s.last, embed=s.embed, head=s.head,
-                                 extra_args=("--serial", "--threads", str(per))
-                                 + (("--cpus", ",".join(str(c) for c in range(k * per, (k + 1) * per))) if pin else ()))
-                      for k, s in enumerate(n_stage_layout(n_stages, base_port=port))]
-            with running_cluster(layout) as pipe:
-                for k in range(3):
-                    generate(pipe, f"warm-{k}", PROMPT, 5)
-                rows.append(measure(pipe, f"{n_stages} workers", cores, [(s.first, s.last) for s in layout]))
-                if n_stages == 3:                                   # let the rebalancer find a better split
-                    from src.coordinator.rebalancer import Rebalancer
-                    reb = Rebalancer(pipe, period_s=0.5, window_s=2.0, cooldown_s=2.5, min_samples=15)
-                    reb.start()
-                    stop = time.monotonic() + rebalance_s
+        even = {n: [(s.first, s.last) for s in n_stage_layout(n, model=model_name)] for n in (2, 3)}
+        rows.append(measured("2 workers", even[2], base_port))
+        rows.append(measured("3 workers", even[3], base_port + 3))
+        from src.coordinator.rebalancer import Rebalancer             # the rebalancer finds a better split under load
+        with running_cluster(workers(even[3], base_port + 6)) as pipe:
+            reb = Rebalancer(pipe, period_s=0.5, window_s=2.0, cooldown_s=2.5, min_samples=15)
+            reb.start()
+            stop = time.monotonic() + rebalance_s
 
-                    def load(i: int) -> None:
-                        k = 0
-                        while time.monotonic() < stop:
-                            generate(pipe, f"reb-{i}-{k}", prompts[i % 3], client_tokens)
-                            k += 1
+            def load(i: int) -> None:
+                k = 0
+                while time.monotonic() < stop:
+                    generate(pipe, f"reb-{i}-{k}", prompts[i % 3], client_tokens)
+                    k += 1
 
-                    threads = [threading.Thread(target=load, args=(i,)) for i in range(clients)]
-                    for t in threads:
-                        t.start()
-                    for t in threads:
-                        t.join()
-                    reb.stop()
-                    row = measure(pipe, "3 workers, rebalanced", cores, reb.layout)
-                    row["moves"] = [f"layer {m.layer}: {'ABC'[m.src]} -> {'ABC'[m.dst]}" for m in reb.moves]
-                    rows.append(row)
+            threads = [threading.Thread(target=load, args=(i,)) for i in range(clients)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            reb.stop()
+            settled = list(reb.layout)
+            moves = [f"layer {m.layer}: {'ABC'[m.src]} -> {'ABC'[m.dst]}" for m in reb.moves]
+        # ... and its layout is measured like the others (a moved layer runs as fast as one loaded at start-up)
+        row = measured("3 workers, rebalanced", settled, base_port + 9)
+        row["moves"] = moves
+        rows.append(row)
     finally:
         if pin:
             pin_to_cpus(list(range(n_cpu)))

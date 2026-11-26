@@ -146,6 +146,7 @@ message InfoReply {
   int64 kv_bytes = 9;          // Ch 9: total size of those caches
   int64 generation = 10;       // Ch 12: incarnation number, +1 on every restart
   int64 epoch = 11;            // Ch 15: layout epoch, +1 on every layer move
+  string model = 12;           // Ch 18: which weights, e.g. "distilgpt2" or "gpt2" (all stages must agree)
 }
 
 message ReleaseRequest {

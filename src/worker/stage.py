@@ -13,7 +13,7 @@ from huggingface_hub import hf_hub_download
 from safetensors import safe_open
 from torch import nn
 
-from src.model.config import GPTConfig
+from src.model.config import GPTConfig, config_for
 from src.model.kv_cache import KVCache
 from src.model.layers import Block, LayerNorm
 from src.model.weights import TRANSPOSED, hf_name_to_ours
@@ -129,14 +129,14 @@ def _read_weights(wanted: set[str], name: str) -> dict[str, torch.Tensor]:
 
 def load_stage(first: int, last: int, has_embed: bool, has_head: bool, name: str = "distilgpt2") -> Stage:
     """Build a Stage and read just its tensors from the safetensors file."""
-    stage = Stage(GPTConfig(), first, last, has_embed, has_head)
+    stage = Stage(config_for(name), first, last, has_embed, has_head)
     stage.load_state_dict(_read_weights(set(stage.state_dict().keys()), name), strict=True)
     return stage.eval()
 
 
 def load_block(i: int, name: str = "distilgpt2") -> Block:
     """Ch 15: one Block with layer i's trained weights, for a worker that is about to receive layer i."""
-    block = Block(GPTConfig())
+    block = Block(config_for(name))
     prefix = f"blocks.{i}."
     weights = _read_weights({prefix + k for k in block.state_dict()}, name)
     block.load_state_dict({k.removeprefix(prefix): t for k, t in weights.items()}, strict=True)

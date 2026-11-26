@@ -111,6 +111,7 @@ def main() -> None:
     parser.add_argument("--workers", default="",
                         help="Ch 17: connect to running workers, e.g. worker-a:50051,worker-b:50052 (in stage order), "
                              "instead of starting them; restarts are then someone else's job (e.g. Docker)")
+    parser.add_argument("--model", default="distilgpt2", help="Ch 18: distilgpt2 (6 layers) or gpt2 (12 layers)")
     parser.add_argument("--stages", type=int, default=2,
                         help="Ch 18: number of workers to start (layers split evenly; 3 = 0-1 | 2-3 | 4-5)")
     parser.add_argument("--rebalance", action="store_true",
@@ -127,9 +128,9 @@ def main() -> None:
     elif log is not None and log.latest_layout is not None:
         epoch, ranges = log.latest_layout                       # restart in the last committed layout
         print(f"[coordinator] log: layout epoch {epoch}, layers {ranges}", flush=True)
-        cluster = supervised_cluster(layout_from_ranges(ranges, epoch))
+        cluster = supervised_cluster(layout_from_ranges(ranges, epoch, model=args.model))
     else:
-        cluster = supervised_cluster(n_stage_layout(args.stages))
+        cluster = supervised_cluster(n_stage_layout(args.stages, model=args.model))
     with cluster as (pipe, health):
         rebalancer = None
         if args.rebalance:

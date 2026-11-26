@@ -205,7 +205,7 @@ def token_latency(data: dict, out: Path) -> None:
     _save(fig, out / "token_latency.png")
 
 
-def stages(data: list[dict], out: Path) -> None:
+def stages(data: list[dict], out: Path, file: str = "stages", model: str = "distilgpt2, 6 layers") -> None:
     """Ch 18: 1 process vs 2 vs 3 workers on the same 6 cores; right: where each decode step's time goes."""
     fig, (left, right) = plt.subplots(1, 2, figsize=(9.6, 4.0), gridspec_kw={"width_ratios": [1.15, 1]})
     labels = [r["config"].replace(", ", ",\n") for r in data]
@@ -216,7 +216,7 @@ def stages(data: list[dict], out: Path) -> None:
         bars = left.bar(x + (k - 0.5) * 0.38, values, 0.38, label=name, color=colour)
         left.bar_label(bars, labels=[f"{v:.1f}" if v else "–" for v in values], fontsize=8, padding=2)
     left.set_xticks(x, labels, fontsize=8.5)
-    left.set(title="Tokens/s on the same 6 cores", ylabel="tokens/s")
+    left.set(title=f"Tokens/s on the same 6 cores ({model})", ylabel="tokens/s")
     left.set_ylim(0, max(r["concurrent_tokens_per_s"] or r["tokens_per_s"] for r in data) * 1.22)
     left.legend(loc="upper left", fontsize=8.5)
     colours = (BLUE, RED, "#f59e0b")
@@ -237,12 +237,13 @@ def stages(data: list[dict], out: Path) -> None:
     right.set_xticks(x, labels, fontsize=8.5)
     right.set(title="One decode step: compute per stage (layers)", ylabel="ms")
     right.set_ylim(0, max(sum(r["stage_ms"]) + r["overhead_ms"] for r in data) * 1.25)
-    _save(fig, out / "stages.png")
+    _save(fig, out / f"{file}.png")
 
 
 DRAW = {"kv_cache": kv_cache, "split_sweep": split_sweep, "throughput": throughput, "load": load,
         "wire": wire, "rebalance": rebalance, "bubble": bubble, "kv_migration": kv_migration,
-        "token_latency": token_latency, "stages": stages}
+        "token_latency": token_latency, "stages": stages,
+        "stages_gpt2": lambda data, out: stages(data, out, "stages_gpt2", "GPT-2 small, 12 layers")}
 FILE = {"load": "load_latency"}                     # experiment name -> chart file name, where they differ
 
 

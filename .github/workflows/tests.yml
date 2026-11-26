@@ -30,16 +30,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Cache distilgpt2 weights
+      - name: Cache distilgpt2 and gpt2 weights
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
-          key: hf-distilgpt2-v1
+          key: hf-distilgpt2-gpt2-v1
 
-      - name: Download the model once (later steps run offline)
+      - name: Download the models once (later steps run offline)
         env:
           HF_HUB_DISABLE_XET: "1"     # Xet's token endpoint 404s for the legacy "distilgpt2" alias; plain HTTP works
-        run: python -c "from huggingface_hub import snapshot_download; snapshot_download('distilgpt2', allow_patterns=['*.json', '*.txt', 'model.safetensors'])"
+        run: |
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('distilgpt2', allow_patterns=['*.json', '*.txt', 'model.safetensors'])"
+          python -c "from huggingface_hub import snapshot_download; snapshot_download('gpt2', allow_patterns=['*.json', '*.txt', 'model.safetensors'])"
 
       - name: Test suite
         env:

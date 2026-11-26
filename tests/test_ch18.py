@@ -136,6 +136,7 @@ def test_matplotlib_writes_every_chart(tmp_path):
                    {"config": "3 workers", "layers": "0-1 | 2-3 | 4-5", "tokens_per_s": 34.0, "overhead_ms": 4.7,
                     "stage_ms": [5.6, 5.1, 13.5], "concurrent_tokens_per_s": 52.0}],
     }
+    data["stages_gpt2"] = data["stages"]                            # same chart, its own file and title
     for name, d in data.items():
         path = plots.draw(name, d, tmp_path)
         assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and path.stat().st_size > 10_000
@@ -417,3 +418,90 @@ def test_rebalancer_moves_a_layer_off_a_slow_middle_worker():
         assert reb.layout[1][1] - reb.layout[1][0] == 1                 # slow B kept one layer
         e = ref["entries"][2]
         assert generate(p, "after-auto-3", e["prompt_ids"], ref["max_new_tokens"])[0] == e["new_ids"]
+
+
+# ---------------- GPT-2 small (12 layers) ----------------
+
+def _cached(model: str) -> bool:
+    from huggingface_hub import hf_hub_download
+    try:
+        hf_hub_download(model, "model.safetensors", local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+needs_gpt2 = pytest.mark.skipif(not _cached("gpt2"), reason="gpt2 weights not downloaded")
+
+
+def test_model_configs_and_layouts():
+    from src.coordinator.cluster import n_stage_layout
+    from src.model.config import config_for
+    assert config_for("distilgpt2").n_layer == 6 and config_for("gpt2").n_layer == 12
+    assert config_for("gpt2").d_model == config_for("distilgpt2").d_model == 768     # same width: same messages
+    with pytest.raises(ValueError):
+        config_for("gpt3")
+    assert [(s.first, s.last) for s in n_stage_layout(3, model="gpt2")] == [(0, 4), (4, 8), (8, 12)]
+    assert [(s.first, s.last) for s in n_stage_layout(2, model="gpt2")] == [(0, 6), (6, 12)]
+    cmd = n_stage_layout(2, model="gpt2")[1].command()
+    assert cmd[cmd.index("--model") + 1] == "gpt2"
+
+
+@needs_gpt2
+def test_gpt2_small_matches_transformers():
+    from transformers import GPT2LMHeadModel
+    from src.model.weights import load_pretrained
+    ours = load_pretrained("gpt2")
+    hf = GPT2LMHeadModel.from_pretrained("gpt2").eval()
+    ids = torch.tensor([[464, 3139, 286, 4881, 318, 6342, 13, 383]])
+    with torch.no_grad():
+        a, b = ours(ids), hf(ids).logits
+    assert ours.cfg.n_layer == 12
+    assert (a - b).abs().max().item() < 1e-3
+    assert torch.equal(a.argmax(-1), b.argmax(-1))
+
+
+@needs_gpt2
+def test_gpt2_small_on_two_and_three_workers_with_layer_moves():
+    """GPT-2 small through 2 and 3 workers must reproduce its single-process reference. With 3 workers, two layers
+    move in the middle of a request: the receiver must load the moved layer from gpt2's weights (distilgpt2 also
+    has a layer 4, so a wrong file would not crash; it would change the tokens)."""
+    import json
+    from src.coordinator.cluster import n_stage_layout
+    from src.coordinator.pipeline import generate
+    from src.reference import reference_file
+    ref = json.loads(reference_file("gpt2").read_text(encoding="utf-8"))
+    entries, n = ref["entries"], ref["max_new_tokens"]
+    for stages, port in ((2, 50681), (3, 50684)):
+        with supervised_cluster(n_stage_layout(stages, base_port=port, model="gpt2")) as (pipe, sup):
+            infos = pipe.check_layout()
+            assert {i.model for i in infos} == {"gpt2"} and infos[-1].last_layer == 12
+            for i, e in enumerate(entries):
+                assert generate(pipe, f"gpt2-{stages}-{i}", e["prompt_ids"], n)[0] == e["new_ids"]
+            if stages == 3:
+                reb = Rebalancer(pipe, supervisor=sup)
+                assert reb.n_layer == 12 and reb.layout == [(0, 4), (4, 8), (8, 12)]
+                e = entries[1]
+                tok, _ = pipe.step("g3", 0, e["prompt_ids"], 0)
+                out, pos = [tok], len(e["prompt_ids"])
+                for step in range(1, n):
+                    if step == 5:
+                        reb.move(1, 2)                                  # layer 7: B -> C
+                    if step == 10:
+                        reb.move(1, 0)                                  # layer 4: B -> A
+                    tok, _ = pipe.step("g3", step, [tok], pos)
+                    out.append(tok)
+                    pos += 1
+                pipe.release("g3")
+                assert reb.layout == [(0, 5), (5, 7), (7, 12)]
+                assert out == e["new_ids"]
+
+
+@needs_gpt2
+def test_workers_running_different_models_are_refused():
+    from src.coordinator.cluster import WorkerSpec, running_cluster
+    a = WorkerSpec("A", 50688, 0, 3, embed=True)                        # distilgpt2 layers 0-2 ...
+    b = WorkerSpec("B", 50689, 3, 12, head=True, model="gpt2")          # ... + gpt2 layers 3-11: contiguous, wrong
+    with pytest.raises(RuntimeError, match="different models"):
+        with running_cluster([a, b]):
+            pass

@@ -52,7 +52,7 @@ class StageModel:
 
 
 class Rebalancer:
-    def __init__(self, pipe: Pipeline, n_layer: int = 6, supervisor=None, period_s: float = 1.0,
+    def __init__(self, pipe: Pipeline, n_layer: int | None = None, supervisor=None, period_s: float = 1.0,
                  window_s: float = 3.0, margin: float = 0.05, cooldown_s: float = 3.0, min_samples: int = 15,
                  undo_margin: float = 0.10, log=None, policy: str = "model", threshold: float = 1.25) -> None:
         """log = a TokenLog: every committed layout (and the one at start) is recorded in it.
@@ -64,7 +64,8 @@ class Rebalancer:
         self.period_s, self.window_s, self.margin = period_s, window_s, margin
         self.undo_margin = undo_margin                             # Ch 18: higher bar for reversing the last move
         self.cooldown_s, self.min_samples = cooldown_s, min_samples
-        infos = pipe.check_layout(n_layer)
+        infos = pipe.check_layout(n_layer)                         # None: the model's own depth
+        self.n_layer = infos[-1].last_layer
         epochs = {i.epoch for i in infos}
         if len(epochs) != 1:
             raise RuntimeError(f"workers disagree about the layout epoch: {sorted(epochs)}")

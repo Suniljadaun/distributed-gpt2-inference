@@ -25,9 +25,14 @@ MAX_NEW_TOKENS = 20
 REFERENCE_FILE = Path(__file__).resolve().parent.parent / "results" / "reference.json"
 
 
-def build_reference() -> list[dict]:
+def reference_file(model: str = "distilgpt2") -> Path:
+    """Ch 18: results/reference.json for distilgpt2, results/reference_gpt2.json for gpt2."""
+    return REFERENCE_FILE if model == "distilgpt2" else REFERENCE_FILE.with_name(f"reference_{model}.json")
+
+
+def build_reference(model_name: str = "distilgpt2") -> list[dict]:
     tok = Tokenizer()
-    model = load_pretrained()
+    model = load_pretrained(model_name)
     entries = []
     for prompt in PROMPTS:
         prompt_ids = tok.encode(prompt)
@@ -47,20 +52,22 @@ def build_reference() -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--save", action="store_true", help="write results/reference.json")
+    parser.add_argument("--model", default="distilgpt2", help="Ch 18: or gpt2 (saved as results/reference_gpt2.json)")
     args = parser.parse_args()
 
-    entries = build_reference()
+    entries = build_reference(args.model)
     for e in entries:
         print(f"{e['prompt']!r}")
         print(f"  -> {e['text']!r}")
         print(f"     {len(e['new_ids'])} tokens, {e['ms_per_token']} ms/token")
 
     if args.save:
-        REFERENCE_FILE.parent.mkdir(exist_ok=True)
-        data = {"model": "distilgpt2", "torch": torch.__version__, "decoding": "greedy",
+        path = reference_file(args.model)
+        path.parent.mkdir(exist_ok=True)
+        data = {"model": args.model, "torch": torch.__version__, "decoding": "greedy",
                 "max_new_tokens": MAX_NEW_TOKENS, "entries": entries}
-        REFERENCE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        print(f"\nsaved {REFERENCE_FILE}")
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        print(f"\nsaved {path}")
 
 
 if __name__ == "__main__":

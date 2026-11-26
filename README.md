@@ -20,7 +20,7 @@ The design, the measurements and the discussion are in **[report/Final_Report.pd
 | Continuous batching | 39.0 → 147.9 tokens/s (3.8×) |
 | Worker crash | detected in 0.25 s, restarted in 2.6 s, request finishes with identical output |
 | Dynamic rebalancing vs static split | +17% steady, +45% with one slow worker |
-| Three workers (same 6 cores, 8 requests at once) | 48.3 tok/s with 2 workers, 51.8 with 3, 57.0 after one automatic layer move |
+| 2 → 3 workers, rebalanced (same 6 cores, 8 requests at once) | GPT-2 small 30.5 → 40.8 tok/s (+34%), distilgpt2 52.3 → 60.4 (+15%) |
 
 ## Requirements
 
@@ -51,7 +51,7 @@ After that, `HF_HUB_OFFLINE=1` (PowerShell: `$env:HF_HUB_OFFLINE=1`) skips the o
 
 ## Run
 
-### Tests (109, about 4 minutes)
+### Tests (113, about 4.5 minutes)
 ```bash
 python -m pytest -q
 ```
@@ -69,7 +69,8 @@ python -m src.client "Once upon a time" --tokens 30 --request-id demo-1   # same
 Coordinator options: `--slots` (requests in flight), `--queue-size` (bounded queue), `--max-batch N` (continuous
 batching; not combined with `--log`), `--log` (token log, enables replay after a worker crash), `--rebalance` (move
 layers between the workers when one stage is the bottleneck), `--stages 3` (three workers, layers 0-1 | 2-3 | 4-5;
-any number from 1 to 6 works). With `--log` and `--rebalance` every layout is written
+any number from 1 to 6 works), `--model gpt2` (GPT-2 small, 12 layers, instead of distilgpt2; downloaded once,
+~550 MB). With `--log` and `--rebalance` every layout is written
 to the log, each token records the layout epoch it was computed under, and a restarted coordinator brings its workers
 up in the last logged layout.
 
@@ -82,7 +83,7 @@ Steps: correctness against single-process inference → steady load with the reb
 of a request → worker A slowed down (layers move away, then back) → duplicate requests. Close other programs
 first: the workers are pinned to cores 0–3 and the demo to cores 4–5.
 
-### Benchmarks (about 13 minutes)
+### Benchmarks (about 20 minutes)
 ```bash
 python -m src.bench.run_all                  # all experiments → results/bench/*.json, results/charts/, results/summary.md
 python -m src.bench.run_all --quick          # shorter runs
@@ -117,7 +118,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on every push:
-- **test**: installs everything on Ubuntu with Python 3.14, runs the 109 tests and a short benchmark (charts kept as
+- **test**: installs everything on Ubuntu with Python 3.14, runs the 113 tests and a short benchmark (charts kept as
   a downloadable artifact);
 - **compose**: builds the image, starts the three containers and runs `playground/ch17/compose_check.py`, then
   does the same with three worker containers (`docker-compose.3workers.yml`).
@@ -132,7 +133,7 @@ python report/build_pdf.py    # report/Final_Report_draft.md → report/Final_Re
 | `src/coordinator/` | pipeline client, schedulers, coordinator server, supervisor, remote health checks, token log, replay, rebalancer |
 | `src/bench/` | experiments (including per-token latency, the pipeline bubble, the KV-cache migrated per layer move and 1 vs 2 vs 3 workers), `run_all`, NumPy analysis, Matplotlib and SVG charts |
 | `src/client.py` | command-line client |
-| `tests/` | 109 tests (`test_chNN.py`, one file per stage of the build) |
+| `tests/` | 113 tests (`test_chNN.py`, one file per stage of the build) |
 | `playground/` | small experiments used while building; `ch18/demo.py` is the live demo, `ch17/compose_check.py` the container check |
 | `results/` | `reference.json` (single-process outputs for the correctness tests), benchmark data, charts, `summary.md` |
 | `report/` | the final report (Markdown source, PDF, figure, build script) and the scope report |

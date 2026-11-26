@@ -69,8 +69,9 @@ class FaultPlan:
 
 class StageWorkerService(pb_grpc.StageWorkerServicer):
     def __init__(self, worker_id: str, stage: Stage, faults: FaultPlan = FaultPlan(), generation: int = 1,
-                 epoch: int = 1) -> None:
+                 epoch: int = 1, model: str = "distilgpt2") -> None:
         self.worker_id = worker_id
+        self.model = model                              # Ch 18: a received layer must come from the same weights
         self.stage = stage
         self.faults = faults
         self.generation = generation                    # Ch 12: which incarnation of this worker we are
@@ -108,7 +109,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
         if request.epoch != self.epoch + 1:
             context.abort(grpc.StatusCode.FAILED_PRECONDITION, f"prepare for epoch {request.epoch}, I am at {self.epoch}")
         start = time.perf_counter()
-        block = load_block(i)
+        block = load_block(i, self.model)
         with self.requests_lock:
             self.pending, self.pending_kv = (request.epoch, i, block), {}
         return pb.PrepareLayerReply(load_ms=(time.perf_counter() - start) * 1000)
@@ -196,7 +197,7 @@ class StageWorkerService(pb_grpc.StageWorkerServicer):
             has_embed=s.has_embed, has_head=s.has_head, pid=os.getpid(),
             param_bytes=sum(p.numel() * p.element_size() for p in s.parameters()),
             cached_requests=len(states), kv_bytes=sum(st.cache.nbytes for st in states),
-            generation=self.generation, epoch=self.epoch,
+            generation=self.generation, epoch=self.epoch, model=self.model,
         )
 
     def Release(self, request: pb.ReleaseRequest, context: grpc.ServicerContext) -> pb.ReleaseReply:
@@ -357,6 +358,7 @@ def main() -> None:
     parser.add_argument("--block-delay-ms", type=float, default=0, help="Ch 15 fault: every block takes this much longer")
     parser.add_argument("--block-delay-after-s", type=float, default=0, help="Ch 15 fault: ... starting after this long")
     parser.add_argument("--block-delay-file", default="", help="Ch 18: ... and only while this file exists")
+    parser.add_argument("--model", default="distilgpt2", help="Ch 18: distilgpt2 (6 layers) or gpt2 (12 layers)")
     parser.add_argument("--cpus", default="", help="Ch 15: pin to these cores, e.g. 0,1,2 (a 'machine' of its own)")
     parser.add_argument("--serial", action="store_true", help="Ch 15: compute one step at a time (a pipeline stage)")
     args = parser.parse_args()
@@ -367,18 +369,18 @@ def main() -> None:
         pin_to_cpus([int(c) for c in args.cpus.split(",")])
     if args.threads:
         torch.set_num_threads(args.threads)
-    stage = load_stage(args.first, args.last, args.embed, args.head)
+    stage = load_stage(args.first, args.last, args.embed, args.head, args.model)
     stage.block_delay_ms, stage.slow_from = args.block_delay_ms, time.monotonic() + args.block_delay_after_s
     stage.delay_file = Path(args.block_delay_file) if args.block_delay_file else None
     faults = FaultPlan(args.fail_every, args.slow_every, args.slow_ms, args.hang_after_s)
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8), options=BIG_MESSAGES)
-    service = StageWorkerService(args.worker_id, stage, faults, args.generation, args.epoch)
+    service = StageWorkerService(args.worker_id, stage, faults, args.generation, args.epoch, args.model)
     if args.serial:
         service.compute_lock = threading.Lock()
     pb_grpc.add_StageWorkerServicer_to_server(service, server)
     server.add_insecure_port(f"{args.host}:{args.port}")
     server.start()
-    print(f"[worker {args.worker_id} gen {args.generation} pid={os.getpid()}] layers {args.first}..{args.last - 1}"
+    print(f"[worker {args.worker_id} gen {args.generation} pid={os.getpid()}] {args.model} layers {args.first}..{args.last - 1}"
           f"{' +embed' if args.embed else ''}{' +head' if args.head else ''} on port {args.port}"
           f"{f'  FAULTS {faults}' if faults != FaultPlan() else ''}"
           f"{f'  +{args.block_delay_ms} ms per block after {args.block_delay_after_s} s' if args.block_delay_ms else ''}",

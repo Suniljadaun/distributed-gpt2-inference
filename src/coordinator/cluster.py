@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from src.coordinator.pipeline import Pipeline
+from src.model.config import config_for
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class WorkerSpec:
     extra_args: tuple[str, ...] = ()       # Ch 10: e.g. ("--fail-every", "3") for fault injection
     first_gen_args: tuple[str, ...] = ()   # Ch 12: only for generation 1, e.g. ("--hang-after-s", "3")
     epoch: int = 1                         # Ch 15: layout epoch (the rebalancer updates first/last/epoch)
+    model: str = "distilgpt2"              # Ch 18: or "gpt2" (12 layers)
 
     @property
     def address(self) -> str:
@@ -32,7 +34,7 @@ class WorkerSpec:
     def command(self, generation: int = 1) -> list[str]:
         cmd = [sys.executable, "-m", "src.worker.server", "--worker-id", self.worker_id,
                "--port", str(self.port), "--first", str(self.first), "--last", str(self.last),
-               "--generation", str(generation), "--epoch", str(self.epoch)]
+               "--generation", str(generation), "--epoch", str(self.epoch), "--model", self.model]
         cmd += (["--embed"] if self.embed else []) + (["--head"] if self.head else [])
         cmd += list(self.extra_args)
         return cmd + (list(self.first_gen_args) if generation == 1 else [])   # a restart is a clean worker
@@ -45,20 +47,21 @@ def two_stage_layout(base_port: int = 50061, split: int = 3, n_layer: int = 6) -
     ]
 
 
-def n_stage_layout(n_stages: int, base_port: int = 50061, n_layer: int = 6) -> list[WorkerSpec]:
-    """Ch 18: n workers A, B, C, ... with the layers split as evenly as possible (3 stages: 0-1 | 2-3 | 4-5).
-    Nothing else depends on the number of stages: Pipeline.step, check_layout, the supervisor and the
-    rebalancer all loop over the stages."""
+def n_stage_layout(n_stages: int, base_port: int = 50061, model: str = "distilgpt2") -> list[WorkerSpec]:
+    """Ch 18: n workers A, B, C, ... with the layers split as evenly as possible (distilgpt2, 3 stages:
+    0-1 | 2-3 | 4-5; gpt2: 0-3 | 4-7 | 8-11). Nothing else depends on the number of stages: Pipeline.step,
+    check_layout, the supervisor and the rebalancer all loop over the stages."""
+    n_layer = config_for(model).n_layer
     if not 1 <= n_stages <= n_layer:
         raise ValueError(f"need 1..{n_layer} stages, got {n_stages}")
     bounds = [k * n_layer // n_stages for k in range(n_stages + 1)]
-    return layout_from_ranges(list(zip(bounds, bounds[1:])), base_port=base_port)
+    return layout_from_ranges(list(zip(bounds, bounds[1:])), base_port=base_port, model=model)
 
 
-def layout_from_ranges(ranges, epoch: int = 1, base_port: int = 50061) -> list[WorkerSpec]:
+def layout_from_ranges(ranges, epoch: int = 1, base_port: int = 50061, model: str = "distilgpt2") -> list[WorkerSpec]:
     """Workers A, B, ... for the given (first, last) layer ranges, e.g. the latest layout in the token log."""
     return [WorkerSpec(chr(ord("A") + k), base_port + k, first, last, embed=k == 0, head=k == len(ranges) - 1,
-                       epoch=epoch) for k, (first, last) in enumerate(ranges)]
+                       epoch=epoch, model=model) for k, (first, last) in enumerate(ranges)]
 
 
 @contextmanager

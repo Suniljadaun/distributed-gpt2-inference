@@ -7,7 +7,7 @@ import torch
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 
-from src.model.config import GPTConfig
+from src.model.config import config_for
 from src.model.gpt import GPT
 
 TRANSPOSED = ("attn.c_attn.weight", "attn.c_proj.weight", "mlp.c_fc.weight", "mlp.c_proj.weight")
@@ -40,6 +40,6 @@ def convert_state_dict(hf_sd: dict[str, torch.Tensor]) -> dict[str, torch.Tensor
 def load_pretrained(name: str = "distilgpt2") -> GPT:
     """Build our GPT and fill it with the trained weights. Returns the model in eval mode."""
     path = hf_hub_download(name, "model.safetensors")     # downloads once, then uses the cache
-    model = GPT(GPTConfig())
+    model = GPT(config_for(name))
     model.load_state_dict(convert_state_dict(load_file(path)), strict=True)
     return model.eval()
